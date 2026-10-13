@@ -57,15 +57,13 @@ export async function buildApp({
     ),
   );
   app.setErrorHandler((error, req, reply) =>
-    reply
-      .code(error.statusCode || 500)
-      .send({
-        error: {
-          code: "REQUEST_FAILED",
-          message: "Unable to process request.",
-          requestId: req.id,
-        },
-      }),
+    reply.code(error.statusCode || 500).send({
+      error: {
+        code: "REQUEST_FAILED",
+        message: "Unable to process request.",
+        requestId: req.id,
+      },
+    }),
   );
   app.get("/health/live", async () => ({ status: "ok" }));
   app.get("/health/ready", async (_req, reply) => {
@@ -84,41 +82,40 @@ export async function buildApp({
     ["GET", "/students/:id"],
     ["GET", "/imports"],
     ["POST", "/imports"],
+    ["GET", "/analytics"],
+    ["GET", "/batch-analytics"],
+    ["GET", "/student-categories"],
+    ["GET", "/student-categories/:category"],
+    ["GET", "/student-categories/:category/export"],
   ]) {
     app.route({
       method,
       url: `/api/v1${path}`,
       handler: async (req, reply) => {
         if (!/^Bearer \S{1,8192}$/.test(req.headers.authorization || ""))
-          return reply
-            .code(401)
-            .send({
-              error: {
-                code: "UNAUTHENTICATED",
-                message: "Sign in to continue.",
-                requestId: req.id,
-              },
-            });
+          return reply.code(401).send({
+            error: {
+              code: "UNAUTHENTICATED",
+              message: "Sign in to continue.",
+              requestId: req.id,
+            },
+          });
         if (req.params.id && !/^[0-9a-f-]{36}$/i.test(req.params.id))
-          return reply
-            .code(400)
-            .send({
-              error: {
-                code: "INVALID_ID",
-                message: "Invalid record identifier.",
-              },
-            });
+          return reply.code(400).send({
+            error: {
+              code: "INVALID_ID",
+              message: "Invalid record identifier.",
+            },
+          });
         const url = new URL(
-          `/v1${path.replace(":id", req.params.id || "")}`,
+          `/v1${path.replace(":id", req.params.id || "").replace(":category", encodeURIComponent(req.params.category || ""))}`,
           upstream,
         );
         for (const [k, v] of Object.entries(req.query)) {
           if (typeof v !== "string")
-            return reply
-              .code(400)
-              .send({
-                error: { code: "INVALID_QUERY", message: "Invalid query." },
-              });
+            return reply.code(400).send({
+              error: { code: "INVALID_QUERY", message: "Invalid query." },
+            });
           url.searchParams.set(k, v);
         }
         try {
@@ -135,27 +132,23 @@ export async function buildApp({
           });
           const payload = await response.json();
           if (response.status >= 500)
-            return reply
-              .code(503)
-              .send({
-                error: {
-                  code: "UPSTREAM_UNAVAILABLE",
-                  message: "Campus services are temporarily unavailable.",
-                  requestId: req.id,
-                },
-              });
-          return reply.code(response.status).send(payload);
-        } catch {
-          return reply
-            .code(503)
-            .send({
+            return reply.code(503).send({
               error: {
                 code: "UPSTREAM_UNAVAILABLE",
-                message:
-                  "Campus services are temporarily unavailable. Please try again.",
+                message: "Campus services are temporarily unavailable.",
                 requestId: req.id,
               },
             });
+          return reply.code(response.status).send(payload);
+        } catch {
+          return reply.code(503).send({
+            error: {
+              code: "UPSTREAM_UNAVAILABLE",
+              message:
+                "Campus services are temporarily unavailable. Please try again.",
+              requestId: req.id,
+            },
+          });
         }
       },
     });

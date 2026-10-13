@@ -53,3 +53,35 @@ test("production configuration refuses plaintext upstream", async () => {
     /HTTPS/,
   );
 });
+
+test("analytics, category and export routes preserve authorized filters", async (t) => {
+  const received = [];
+  const app = await buildApp({
+    env,
+    logger: false,
+    request: async (url, options) => {
+      received.push({ url, options });
+      return Response.json({ data: { total: 1 } });
+    },
+  });
+  t.after(() => app.close());
+  for (const route of [
+    "/analytics",
+    "/batch-analytics",
+    "/student-categories",
+    "/student-categories/needs-improvement",
+    "/student-categories/medium/export",
+  ]) {
+    const response = await app.inject({
+      url: `/api/v1${route}?batch=2026&department=CSE&search=TEST`,
+      headers: { authorization: "Bearer user-token" },
+    });
+    assert.equal(response.statusCode, 200);
+    const forwarded = received.at(-1);
+    assert.equal(forwarded.url.pathname, `/v1${route}`);
+    assert.equal(forwarded.url.searchParams.get("department"), "CSE");
+    assert.equal(forwarded.url.searchParams.get("batch"), "2026");
+    assert.equal(forwarded.options.headers.authorization, undefined);
+    assert.equal(forwarded.options.headers.Authorization, "Bearer user-token");
+  }
+});
