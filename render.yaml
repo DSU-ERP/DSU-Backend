@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: dsu-backend
+    runtime: node
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /health/ready
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 24
+      - key: TRUST_PROXY
+        value: 1
+      - key: DSU_API_URL
+        sync: false
+      - key: SERVICE_TOKEN
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
