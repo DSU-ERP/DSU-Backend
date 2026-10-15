@@ -1,7 +1,10 @@
+# Consolidated DSU backend: API routes, business logic and database access in
+# one service. Replaces the previous dsu-backend gateway + dsu-api pair.
 services:
   - type: web
     name: dsu-backend
     runtime: node
+    plan: free
     buildCommand: npm ci --omit=dev
     startCommand: npm start
     healthCheckPath: /health/ready
@@ -12,7 +15,17 @@ services:
         value: 24
       - key: TRUST_PROXY
         value: 1
-      - key: DSU_API_URL
+      - key: DATABASE_SSL
+        value: true
+      # Supabase CA, uploaded as a Render secret file. Never disable
+      # verification and never use a machine-specific path here.
+      - key: DATABASE_CA_PATH
+        value: /etc/secrets/prod-ca-2021.crt
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
         sync: false
       - key: SERVICE_TOKEN
         sync: false

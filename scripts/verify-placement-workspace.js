@@ -1,0 +1,107 @@
+import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+import {readFile} from 'node:fs/promises';
+import {createPool} from '../src/integrations/supabase/db.js';
+const pool=createPool(process.env.DATABASE_ADMIN_URL),c=await pool.connect();
+let checks=0;
+const check=(actual,expected)=>{assert.deepEqual(actual,expected);checks++};
+try {
+ await c.query('BEGIN');
+ if(process.argv.includes('--preview')) for(const file of ['006_placement_workspace.sql','007_placement_reads.sql','008_placement_mutations.sql','009_assistant_request_limit.sql','010_bulk_candidate_validation.sql'])await c.query(await readFile(new URL('../supabase/migrations/'+file,import.meta.url),'utf8'));
+ const officer=randomUUID(),otherOfficer=randomUUID(),outsider=randomUUID(),studentA=randomUUID(),studentB=randomUUID(),studentMissing=randomUUID();
+ for(const id of [officer,otherOfficer,outsider])await c.query("INSERT INTO auth.users(id,aud,role,email) VALUES($1,'authenticated','authenticated',$2)",[id,`verify-${id}@example.invalid`]);
+ await c.query('INSERT INTO placement.officers(user_id) VALUES($1),($2)',[officer,otherOfficer]);
+ for(const [id,cgpa,name] of [[studentA,'8.499','Candidate A'],[studentB,'6.749','Candidate B'],[studentMissing,null,'Missing CGPA']]){
+  await c.query("INSERT INTO erp.students(id,enrollment_no,full_name,source_batch,source_hash,department_short_name,admission_quota) VALUES($1,$2,$3,'2099','fixture','TEST-CSE','DSAT')",[id,`PO-${id}`,name]);
+  await c.query('INSERT INTO erp.academics(student_id,cgpa,current_backlog) VALUES($1,$2,0)',[id,cgpa]);
+ }
+ await c.query("INSERT INTO erp.contacts(student_id,details) VALUES($1,'{\"email\":\"fixture@example.invalid\",\"gender\":\"Male\"}'),($2,'{\"gender\":\"Female\"}')",[studentA,studentB]);
+ await c.query("INSERT INTO placement.test_results(student_id,assessment_id,assessment_name,tier,score,max_score,completed_at,classification,flagged) VALUES($1,'old','Old test',1,99,100,'2020-01-01','Basic',true),($1,'new','Latest test',1,10,100,'2021-01-01','Medium',false),($1,'tier2','Tier 2',2,20,100,'2021-02-01','Advanced',false),($2,'new','Latest test',1,35,100,'2021-01-01','Basic',true)",[studentA,studentB]);
+ await c.query("INSERT INTO placement.points(student_id,academic,github,domain,breakdown) VALUES($1,10,30,0,'{\"coursework\":10}'),($2,20,5,50,'{}')",[studentA,studentB]);
+ await c.query("INSERT INTO placement.predictions(student_id,readiness,risk,roles,languages,alignment,generated_at) VALUES($1,'job-ready','low',ARRAY['Developer'],ARRAY['TypeScript'],10,now()),($2,'entry-level','high',ARRAY['Analyst'],ARRAY['Python'],90,now())",[studentA,studentB]);
+ for(const [value,category] of [['10','advanced'],['9.25','advanced'],['8.50','advanced'],['8.499','medium'],['8.49','medium'],['7.50','medium'],['6.75','medium'],['6.749','needs-improvement'],['6.74','needs-improvement'],['6.50','needs-improvement'],['6.49','needs-improvement'],['5','needs-improvement'],['0','needs-improvement'],[null,null],['-0.1',null],['10.001',null],['NaN',null]]){
+   check((await c.query('SELECT erp.cgpa_category($1::numeric) AS category',[value])).rows[0].category,category);
+ }
+ const become=async(id,role='authenticated')=>{await c.query('RESET ROLE');await c.query("SELECT set_config('request.jwt.claims',$1,true)",[JSON.stringify({sub:id,role})]);await c.query(`SET LOCAL ROLE ${role}`)};
+ const read=async(resource,query={})=>(await c.query('SELECT public.dsu_placement_read($1,$2) AS v',[resource,query])).rows[0].v.data;
+ const mutate=async(action,payload,key=randomUUID())=>(await c.query('SELECT public.dsu_placement_mutate($1,$2,$3) AS v',[action,payload,key])).rows[0].v.data;
+ const denied=async(fn,code)=>{await c.query('SAVEPOINT denied');await assert.rejects(fn,e=>e.code===code);await c.query('ROLLBACK TO SAVEPOINT denied');checks++};
+ await become(null,'anon');await denied(()=>read('session'),'42501');
+ await become(outsider);await denied(()=>read('overview'),'PT403');await denied(()=>mutate('company.save',{name:'Forbidden'}),'PT403');
+ await become(officer);check((await read('session')).role,'placement_officer');
+ check((await mutate('assistant.request',{})).allowed,true);
+ await denied(()=>c.query('SELECT * FROM placement.companies'),'42501');
+ for(const resource of ['overview','companies','drives','offers','company-reports','multiple-offers','departments','students','ranking','batch','tests','points','github','domain','talent','conversations']){
+  const data=await read(resource,{batch:'2099'});assert.ok(data);checks++;
+ }
+ const batch=await read('batch',{batch:'2099'});check(batch.summary.students,3);check(batch.summary.eligible,1);check(batch.summary.unclassified,1);
+ const ranking=await read('ranking',{batch:'2099'});check(ranking.rows[0].cgpa,'8.499');check(ranking.rows[0].college_rank,1);
+ check((await read('ranking',{batch:'2099',minimum:'8.499'})).pagination.total,1);
+ check((await read('ranking',{batch:'2099',minimum:'8.5'})).pagination.total,0);
+ check(batch.categories.reduce((total,r)=>total+r.count,0)+batch.summary.unclassified,batch.summary.students);
+ check(batch.rows[0].male+batch.rows[0].female+batch.rows[0].other_gender,3);
+ check((await read('students',{batch:'2099',category:'medium',export:'true'})).rows.length,1);
+ for(const q of [{minimum:'10.1'},{page:'-1'},{unknown:'x'},{batch:'2099 OR true'}])await denied(()=>read('students',q),'PT400');
+ const tests=await read('tests',{batch:'2099'});check(tests.rows[0].id,studentB);check(tests.rows[1].combined_score,30);check(tests.rows[1].attempts.length,2);check(tests.summary.flagged,1);
+ check((await read('tests',{batch:'2099',search:'fixture@example.invalid'})).pagination.total,1);
+ check((await read('tests',{batch:'2099',classification:'Advanced',violation:'clean'})).rows[0].id,studentA);
+ check((await read('points',{batch:'2099'})).rows[0].id,studentB);check((await read('github',{batch:'2099'})).rows[0].id,studentA);
+ const talent=await read('talent',{batch:'2099',sort:'name',direction:'asc'});check(talent.rows[0].id,studentA);check(talent.summary.missing,1);
+ check((await read('talent',{batch:'2099',search:'Developer',language:'TypeScript',risk:'low'})).rows[0].id,studentA);
+ check((await read('talent',{batch:'2099',missing:'true'})).pagination.total,1);
+ const key=randomUUID();const company=await mutate('company.save',{name:`Test company ${officer}`,industry:'Technology'},key);
+ check((await mutate('company.save',{name:`Test company ${officer}`,industry:'Technology'},key)).id,company.id);
+ await denied(()=>mutate('company.save',{name:'changed'},key),'PT409');
+ const template={company_id:company.id,title:'Software engineer',description:'Synthetic QA',package_lpa:'5',academic_year:'2098-99',batch:'2099',min_cgpa:'6.75',max_backlogs:0,branches:['TEST-CSE'],rounds:['Test','Interview'],status:'upcoming'};
+ const drive=await mutate('drive.save',template);
+ check((await read('drives',{company:company.id,batch:'2099'})).rows[0].id,drive.id);
+ const poolView=await read('drive',{id:drive.id});check(poolView.counts.eligible,1);
+ await denied(()=>mutate('registration.add',{drive_id:drive.id,student_ids:[studentA]}),'PT409');
+ await denied(()=>mutate('registration.add',{drive_id:drive.id,student_ids:[studentB],override_interest:true}),'PT409');
+ await mutate('interest.record',{drive_id:drive.id,student_ids:[studentA],state:'invited'});
+ check((await read('drive',{id:drive.id})).counts.invited,1);
+ await mutate('interest.record',{drive_id:drive.id,student_ids:[studentA],state:'interested'});
+ check((await mutate('registration.interested',{drive_id:drive.id})).count,1);
+ const registered=(await read('drive',{id:drive.id,pool:'registered'})).rows[0];
+ check((await mutate('registration.add',{drive_id:drive.id,student_ids:[studentA]})).count,0);
+ await denied(()=>mutate('drive.save',{...template,id:drive.id,revision:1,rounds:['Changed']}),'PT409');
+ await denied(()=>mutate('offer.create',{drive_id:drive.id,registration_ids:[registered.registration_id]}),'PT409');
+ await denied(()=>mutate('round.record',{drive_id:drive.id,registration_ids:[registered.registration_id],round:2,result:'pass'}),'PT409');
+ for(const round of [1,2])await mutate('round.record',{drive_id:drive.id,registration_ids:[registered.registration_id],round,result:'pass'});
+ await mutate('offer.create',{drive_id:drive.id,registration_ids:[registered.registration_id]});
+ const offers=await read('offers',{batch:'2099'});check(offers.rows[0].category,'regular');check(offers.rows.length,1);
+ await mutate('offer.decide',{id:offers.rows[0].id,revision:1,status:'accepted'});
+ const equalDrive=await mutate('drive.save',{...template,title:'Same category',rounds:['Interview']});
+ check((await read('drive',{id:equalDrive.id})).rows.find(s=>s.student_id===studentA).reason,'Upward-only placement rule');
+ await denied(()=>mutate('registration.add',{drive_id:equalDrive.id,student_ids:[studentA],override_interest:true}),'PT409');
+ const higher=await mutate('drive.save',{...template,title:'Higher category',package_lpa:'5.001',rounds:['Interview']});
+ await mutate('registration.add',{drive_id:higher.id,student_ids:[studentA],override_interest:true});
+ const reg2=(await read('drive',{id:higher.id,pool:'registered'})).rows[0];
+ await mutate('round.record',{drive_id:higher.id,registration_ids:[reg2.registration_id],round:1,result:'pass'});
+ await mutate('offer.create',{drive_id:higher.id,registration_ids:[reg2.registration_id]});
+ check((await read('multiple-offers',{batch:'2099'})).summary.students,1);
+ const summary=(await read('overview',{batch:'2099'})).summary;
+ check(summary.placed,1);check(summary.offers,2);check(summary.unplaced,2);check(summary.accepted,1);
+ const journey=await read('student',{id:studentA});check(journey.offers.length,2);check(journey.registrations.length,2);assert.ok(journey.timeline.length);checks++;
+ const companyReport=await read('company-reports',{batch:'2099',search:company.name});check(companyReport.companies.find(v=>v.id===company.id).offers,2);
+ check((await read('departments',{batch:'2099'})).departments[0].accepted,1);
+ const email=await mutate('proposal.create',{kind:'email',payload:{student_id:studentA,subject:'Fixture',body:'No real email is sent'}});
+ await denied(()=>mutate('proposal.finish',{id:email.id,success:true}),'PT409');
+ await become(otherOfficer);await denied(()=>mutate('proposal.claim',{id:email.id}),'PT404');await become(officer);
+ await mutate('proposal.claim',{id:email.id});await denied(()=>mutate('proposal.claim',{id:email.id}),'PT409');await mutate('proposal.finish',{id:email.id,success:true});await denied(()=>mutate('proposal.finish',{id:email.id,success:true}),'PT409');
+ const cancelled=await mutate('proposal.create',{kind:'email',payload:{}});await mutate('proposal.cancel',{id:cancelled.id});await denied(()=>mutate('proposal.claim',{id:cancelled.id}),'PT409');
+ const chat=await mutate('conversation.create',{assistant:'observation',title:'Test'});
+ await mutate('conversation.append',{conversation_id:chat.id,user:'test',assistant:'answer'});check((await read('conversation',{id:chat.id})).messages.length,2);
+ await become(otherOfficer);await denied(()=>read('conversation',{id:chat.id}),'PT404');await denied(()=>mutate('conversation.delete',{id:chat.id}),'PT404');
+ await become(officer);
+ const allOffers=await read('offers',{batch:'2099'});for(const o of allOffers.rows)await mutate('offer.decide',{id:o.id,revision:o.revision,status:'revoked'});
+ check((await read('overview',{batch:'2099'})).summary.placed,0);check((await read('multiple-offers',{batch:'2099',status:'accepted'})).summary.students,1);
+ check((await read('offers',{batch:'2099',inactive:'false'})).pagination.total,0);
+ await c.query('RESET ROLE');await c.query('UPDATE erp.academics SET cgpa=$1 WHERE student_id=$2',['8.499',studentB]);await become(officer);
+ const tied=await read('ranking',{batch:'2099'});check(tied.rows.slice(0,2).map(r=>r.college_rank),[1,1]);check(tied.rows.slice(0,2).map(r=>r.usn),tied.rows.slice(0,2).map(r=>r.usn).sort());
+ await denied(()=>mutate('company.save',{id:company.id,revision:0,name:company.name}),'PT409');
+ await denied(()=>mutate('company.delete',{id:company.id,revision:1,confirmation:'wrong'}),'PT409');
+ await mutate('company.delete',{id:company.id,revision:1,confirmation:company.name});check((await read('offers',{batch:'2099'})).rows.length,0);
+ await c.query('ROLLBACK');console.log(JSON.stringify({passed:true,checks,fixtures:'rolled back'}));
+}catch(e){await c.query('ROLLBACK');console.error('Workspace verification failed:',e.code,e.message,e.where,e.position);process.exitCode=1;}
+finally{c.release();await pool.end()}
