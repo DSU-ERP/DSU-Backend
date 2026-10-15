@@ -181,6 +181,16 @@ export async function buildApp({
         "INSERT INTO erp.audit_events(actor_id,action,resource_id) VALUES ($1,$2,$3)",
         [req.actor.id, action, resource],
       );
+    // Import access is independent of the retired Campus portal membership.
+    // The database checks active officer assignment and enforces the same RLS
+    // predicate for each write. No client-provided role is trusted.
+    const runImport = (req, fn) => withActor(pool, req.actor.id, async (client) => {
+      const { rows } = await client.query("SELECT erp.can_import_students() AS allowed");
+      if (rows[0]?.allowed !== true)
+        throw httpError(403, "FORBIDDEN", "Placement Officer or administrator access is required.");
+      await client.query("SELECT set_config('app.student_import', 'true', true)");
+      return fn(client);
+    });
     registerAnalytics(api, { run, audit, httpError });
     api.get("/me", async (req) =>
       run(req, null, async (_client, m) => ({
@@ -289,7 +299,7 @@ export async function buildApp({
       });
     });
     api.get("/imports", async (req) =>
-      run(req, ["admin"], async (client) => ({
+      runImport(req, async (client) => ({
         data: (
           await client.query(
             "SELECT id,source_batch,summary,created_at FROM erp.import_runs ORDER BY created_at DESC LIMIT 20",
@@ -310,7 +320,7 @@ export async function buildApp({
           !req.headers["content-type"]?.startsWith("text/csv")
         )
           throw httpError(415, "INVALID_CONTENT_TYPE", "Upload a CSV file.");
-        return run(req, ["admin"], async (client) => {
+        return runImport(req, async (client) => {
           try {
             return {
               data: await importStudents(

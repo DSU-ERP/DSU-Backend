@@ -16,7 +16,8 @@
     "csv:import": "node --env-file-if-exists=.env scripts/import-csv.js",
     "access:grant": "node --env-file-if-exists=.env scripts/grant-access.js",
     "verify:analytics": "node --env-file-if-exists=.env scripts/verify-analytics.js",
-    "verify:database": "node --env-file-if-exists=.env scripts/verify-database.js"
+    "verify:database": "node --env-file-if-exists=.env scripts/verify-database.js",
+    "verify:placement-imports": "node --env-file-if-exists=.env scripts/verify-placement-imports.js"
   },
   "dependencies": {
     "@fastify/cors": "^11.1.0",
