@@ -1,6 +1,11 @@
 import pg from "pg";
 import { readFileSync } from "node:fs";
 
+// Return SQL DATE values as their literal YYYY-MM-DD text. pg's default turns
+// them into local-midnight Date objects, which shifts the day in non-UTC zones
+// (e.g. IST) and made registration-deadline comparisons always false.
+pg.types.setTypeParser(1082, (value) => value);
+
 export function createPool(url, env = process.env) {
   if (!url) throw new Error("Database connection is not configured");
   // URL sslmode parameters can override pg's verified TLS configuration.
@@ -20,12 +25,12 @@ export function createPool(url, env = process.env) {
             : {}),
         }
       : false,
-    max: 5,
-    connectionTimeoutMillis: 8000,
+    max: Number(env.DATABASE_POOL_MAX || 5),
+    connectionTimeoutMillis: Number(env.DATABASE_CONNECTION_TIMEOUT_MS || 5000),
     idleTimeoutMillis: 30000,
-    statement_timeout: 15000,
+    statement_timeout: Number(env.DATABASE_STATEMENT_TIMEOUT_MS || 15000),
     query_timeout: 20000,
-    application_name: "dsu-api",
+    application_name: "dsu-backend",
   });
   pool.on("error", (error) =>
     console.error(
@@ -50,6 +55,7 @@ export async function withActor(
       repeatableRead ? "BEGIN ISOLATION LEVEL REPEATABLE READ" : "BEGIN",
     );
     await client.query("SELECT set_config('app.user_id', $1, true)", [actorId]);
+    await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({sub:actorId,role:'authenticated'})]);
     const result = await fn(client);
     await client.query("COMMIT");
     return result;

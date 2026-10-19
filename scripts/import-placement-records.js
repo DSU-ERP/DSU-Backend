@@ -11,7 +11,7 @@ const result=z.object({...base,assessment_id:name,assessment_name:name,tier:z.un
 const points=z.object({...base,academic:score.max(1000000),github:score.max(1000000),domain:score.max(1000000),breakdown:z.record(z.string(),z.union([z.number().finite(),z.string().max(500)])).default({}),updated_at:time}).strict();
 const prediction=z.object({...base,readiness:z.enum(['job-ready','mid-level','entry-level']),risk:z.enum(['low','medium','high']),roles:words,domains:words,skills:words,languages:words,strengths:words,risks:words,recommendations:words,alignment:percent,practical:percent,theoretical:percent,course_fit:percent,generated_at:time}).strict();
 const file=process.argv[2];
-if(!file || file.startsWith('--'))throw new Error('Usage: node --env-file-if-exists=.env scripts/import-placement-records.js <recorded-data.json> [--apply]');
+if(!file || file.startsWith('--'))throw new Error('Usage: node --env-file-if-exists=.env --env-file-if-exists=.env.operator scripts/import-placement-records.js <recorded-data.json> [--apply]');
 const raw=await readFile(file);if(raw.length>20_000_000)throw new Error('Input exceeds 20 MB. Split the source into smaller files.');
 const parsed=z.object({tests:z.array(result).max(20000).default([]),points:z.array(points).max(20000).default([]),predictions:z.array(prediction).max(20000).default([])}).strict().safeParse(JSON.parse(raw));
 if(!parsed.success){console.error('Invalid source fields:',parsed.error.issues.map(i=>i.path.join('.')).join(', '));process.exit(1);}

@@ -4,7 +4,8 @@ services:
   - type: web
     name: dsu-backend
     runtime: node
-    plan: free
+    plan: starter
+    region: singapore
     buildCommand: npm ci --omit=dev
     startCommand: npm start
     healthCheckPath: /health/ready
@@ -27,7 +28,30 @@ services:
         sync: false
       - key: SUPABASE_PUBLISHABLE_KEY
         sync: false
+      - key: ASSESSMENT_CODE_SECRET
+        generateValue: true
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: STUDENT_AI_MODEL
+        sync: false
+      - key: STUDENT_AI_CONCURRENCY
+        value: 2
       - key: SERVICE_TOKEN
         sync: false
       - key: CORS_ORIGINS
         sync: false
+      - key: DATABASE_POOL_MAX
+        value: 5
+      - key: RATE_LIMIT_MODE
+        value: redis
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: dsu-shared-limits
+          property: connectionString
+  - type: keyvalue
+    name: dsu-shared-limits
+    plan: starter
+    region: singapore
+    ipAllowList: []
+    maxmemoryPolicy: allkeys-lru

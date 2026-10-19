@@ -1,73 +1,51 @@
 # DSU Backend
 
-Consolidated backend for the DSU ERP: HTTP routes, business logic, database
-access, CSV import, analytics, schema migrations and operator tooling in one
-service. It replaces the previous pair of a `dsu-backend` forwarding gateway
-and a separate `dsu-api` service.
+The Fastify API owns campus data access, placement operations and student preparation. A separate Next.js service provides the UI. Supabase PostgreSQL stores records, Supabase Auth verifies identities, Redis shares production request limits, and OpenRouter provides optional AI.
+
+Product roles: **student** and **placement officer**. Existing admin/staff permissions remain internal operator permissions. Signup never grants officer access or links an arbitrary USN.
 
 ## Structure
 
-    src/
-      app.js                        Fastify app, routes, auth, error handling
-      server.js                     process entry point
-      integrations/supabase/db.js   pool, TLS, withActor RLS wrapper
-      modules/
-        imports/{csv,importer}.js   CSV validation and transactional import
-        analytics/                  category rules, placement policy, analytics
-    supabase/migrations/            SQL source of truth (11 files)
-    scripts/                        migrate, provision, import, grant, verify
-    test/                           unit and authorization tests
+- `src/app.js`: HTTP composition, request IDs, security headers, errors and limits.
+- `src/server.js`: configuration, restricted database role, Redis and shutdown.
+- `src/config/`: validated environment.
+- `src/platform/`: HTTP errors and checksum-protected migrations.
+- `src/integrations/supabase/`: bounded PostgreSQL pool and actor transactions.
+- `src/modules/identity/`: JWKS JWT verification and legacy HS256 Auth verification.
+- `src/modules/campus/`, `portal/`, `analytics/`, `imports/`: campus reports and imports.
+- `src/modules/students/`: profiles, dashboard, documents, career, chat, interviews, assessments, practice, opportunities, calendar and officer publishing.
+- `supabase/migrations/`: historical SQL and additive backend/student migrations.
+- `scripts/`: protected operator tooling and environment setup.
+- `test/`: unit, authorization and fresh-database integration tests.
 
-## HTTP contract
+## Local setup
 
-| Route | Prefix | Access |
-|---|---|---|
-| `GET /health/live` | - | public |
-| `GET /health/ready` | - | public, checks the database |
-| `GET /me` | `/api/v1`, `/v1` | linked account |
-| `GET /overview` | `/api/v1`, `/v1` | admin, staff |
-| `GET /students` | `/api/v1`, `/v1` | admin, staff |
-| `GET /students/:id` | `/api/v1`, `/v1` | admin, staff, or the linked student |
-| `GET /imports` | `/api/v1`, `/v1` | admin |
-| `POST /imports?batch=YYYY` | `/api/v1`, `/v1` | admin, `text/csv` |
+Use Node 24. Run `npm ci`, `npm run env:setup`, then fill ignored `.env` runtime and `.env.operator` credentials. Setup preserves existing files and generates secrets for new files. `npm run env:check` validates without printing values. `npm run dev` starts port 4000. Legacy `.env.local` is no longer loaded by package scripts.
 
-`/api/v1` is the public contract the web application calls through
-`DSU_BACKEND_URL`. It requires a Supabase-verified user bearer token and an
-`erp.memberships` role check on every request.
+Runtime `DATABASE_URL` must use `dsu_api`. `DATABASE_ADMIN_URL` belongs exclusively in `.env.operator`. `DATABASE_CA_PATH` points to the real provider CA; TLS verification stays enabled. Operators use `npm run db:migrate` for reviewed migrations, separately from application startup. `npm run db:status` is read-only: it lists applied/pending migrations, whether the backend schema is ready, and row counts (never row contents). If the website shows "database update is pending", run `db:status`, then `db:migrate`, then restart the backend; the backend also logs `database_update_pending` at startup and `/health/ready` reports it.
 
-`/v1` additionally requires `X-Service-Token`. It is retained unchanged so the
-previous gateway contract keeps working during cutover, and can be removed once
-nothing calls it.
+## Contracts
 
-Both prefixes run the same handlers, so authorisation cannot drift between them.
+All application requests use `/api/v1` with a verified user bearer token. Retained `/v1` additionally requires `X-Service-Token`. The web needs no database password or service-role key.
 
-## Local development
+| Route group | Purpose |
+|---|---|
+| `/health/live`, `/health/ready` | Liveness and database readiness |
+| `/portal/read` | Authorized campus report contract |
+| `/placement/:resource`, `/placement/actions/:action` | Officer reports and mutations |
+| `/placement/tools/*` | Assigned tests/results, cohort events and notices |
+| `/student/me`, `/student/profile` | Official record and editable self-profile |
+| `/student/dashboard`, `/student/readiness` | Preparation evidence and recommendations |
+| `/student/documents`, `/student/career` | Extraction and persisted resume guidance |
+| `/student/conversations/*` | Private contextual chat |
+| `/student/interviews/*`, `/student/sessions/*` | Plans, sessions, reports and coaching |
+| `/student/assessments/*`, `/student/attempts/*` | Generated tests, autosave and grading |
+| `/student/practice/*`, `/student/assigned/unlock` | Practice and class-code access |
+| `/student/opportunities/*` | Published drives, eligibility, apply/withdraw |
+| `/student/calendar/*`, `/student/notifications/*` | Personal/cohort events and read receipts |
 
-Requires Node 22 or newer. Copy `.env.example` to `.env` and fill it in.
+See [architecture](docs/ARCHITECTURE.md), [Render and cutover](docs/RENDER_SETUP.md), and [student behavior](docs/STUDENT-WORKSPACE.md).
 
-    npm ci
-    npm run db:check
-    npm run dev
-    npm test
+## Verification
 
-## Operator commands
-
-    npm run db:migrate      apply pending migrations under an advisory lock
-    npm run db:provision    create or rotate the restricted runtime role
-    npm run csv:import      import a batch CSV from the command line
-    npm run access:grant    grant a role to a Supabase Auth user
-    npm run verify:database verify against synthetic rows in a rolled-back txn
-
-Migrations verify SHA-256 checksums of already-applied files and never reset a
-schema. `DATABASE_ADMIN_URL` is required for migration and provisioning and must
-stay on an authorised operator machine; it is never set in Render.
-
-## Deployment
-
-Render blueprint in `render.yaml`. Build `npm ci --omit=dev`, start `npm start`,
-readiness `/health/ready`. The process binds `0.0.0.0:$PORT`. Upload the
-Supabase CA as a secret file and point `DATABASE_CA_PATH` at it. Set every
-`sync: false` value in the dashboard. Never disable TLS verification.
-
-Free-tier instances hibernate, so the first request after idle is slow. That is
-a hosting characteristic and is not changed by this consolidation.
+`npm test` uses isolated PostgreSQL/PGlite, synthetic identities and AI fixtures. `npm run test:capacity` loads 50,000 synthetic students without production traffic. `npm audit --audit-level=high` checks dependencies. Real PostgreSQL staging, deployed browser media and live-provider checks remain release requirements.

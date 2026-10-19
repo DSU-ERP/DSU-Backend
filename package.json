@@ -4,20 +4,28 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": ">=24 <25"
   },
   "scripts": {
     "dev": "node --env-file-if-exists=.env --watch src/server.js",
     "start": "node --env-file-if-exists=.env src/server.js",
-    "test": "node --test",
-    "db:check": "node --env-file-if-exists=.env scripts/db-check.js",
-    "db:migrate": "node --env-file-if-exists=.env scripts/migrate.js",
-    "db:provision": "node --env-file-if-exists=.env scripts/provision.js",
-    "csv:import": "node --env-file-if-exists=.env scripts/import-csv.js",
-    "access:grant": "node --env-file-if-exists=.env scripts/grant-access.js",
-    "verify:analytics": "node --env-file-if-exists=.env scripts/verify-analytics.js",
-    "verify:database": "node --env-file-if-exists=.env scripts/verify-database.js",
-    "verify:placement-imports": "node --env-file-if-exists=.env scripts/verify-placement-imports.js"
+    "test": "node --no-wasm-tier-up --test --test-concurrency=1",
+    "db:check": "node --env-file-if-exists=.env --env-file-if-exists=.env.operator scripts/db-check.js",
+    "db:migrate": "node --env-file-if-exists=.env --env-file-if-exists=.env.operator scripts/migrate.js",
+    "db:status": "node --env-file-if-exists=.env --env-file-if-exists=.env.operator scripts/db-status.js",
+    "db:provision": "node --env-file-if-exists=.env --env-file-if-exists=.env.operator scripts/provision.js",
+    "csv:import": "node --env-file-if-exists=.env --env-file-if-exists=.env.operator scripts/import-csv.js",
+    "access:grant": "node --env-file-if-exists=.env --env-file-if-exists=.env.operator scripts/grant-access.js",
+    "verify:analytics": "node --env-file-if-exists=.env --env-file-if-exists=.env.operator scripts/verify-analytics.js",
+    "verify:database": "node --env-file-if-exists=.env --env-file-if-exists=.env.operator scripts/verify-database.js",
+    "env:setup": "node scripts/setup-env.js",
+    "env:check": "node --env-file-if-exists=.env scripts/check-env.js",
+    "access:lock-rpc": "node --env-file-if-exists=.env --env-file-if-exists=.env.operator scripts/lock-rpc-access.js",
+    "test:capacity": "node --no-wasm-tier-up scripts/verify-capacity.js",
+    "access:officer": "node --env-file-if-exists=.env --env-file-if-exists=.env.operator scripts/grant-placement-officer.js",
+    "placement:import": "node --env-file-if-exists=.env --env-file-if-exists=.env.operator scripts/import-placement-records.js",
+    "verify:placement-imports": "node --env-file-if-exists=.env --env-file-if-exists=.env.operator scripts/verify-placement-imports.js",
+    "verify:friday-rename": "node --env-file-if-exists=.env --env-file-if-exists=.env.operator scripts/verify-friday-rename.js"
   },
   "dependencies": {
     "@fastify/cors": "^11.1.0",
@@ -25,7 +33,14 @@
     "@fastify/rate-limit": "^10.3.0",
     "csv-parse": "^7.0.3",
     "fastify": "^5.6.0",
+    "ioredis": "^6.0.0",
+    "jose": "^6.2.12",
+    "mammoth": "^1.13.0",
+    "pdf-parse": "^2.4.5",
     "pg": "^8.16.3",
     "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.10"
   }
 }

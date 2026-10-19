@@ -1,123 +1,51 @@
-# Host DSU API and Backend on Render
+# Render deployment and controlled cutover
 
-Prepared 13 October 2026. This guide deploys two Node web services. Supabase already contains the database and student data; do not create a new Render database or re-import CSVs during deployment.
+Two application services: **dsu-web** from DSU-WEB and **dsu-backend** from DSU-Backend. Supabase remains database/Auth; Render Key Value supports shared limits. The old separate DSU-API is not in this topology. Definitions are prepared locally; this implementation has not deployed services or applied live migrations.
 
-## 1. Push source code
+## Prepare and rehearse
 
-Both local service repositories currently have no commits. Run these commands in PowerShell after reviewing the staged filenames. The ignore rules exclude `.env`, `.local`, dependencies, and API certificates/CSV data. Do not force-add ignored files.
+Use Node 24. Backend: `npm ci`, `npm test`, `npm run test:capacity`, `npm audit --audit-level=high`. Web: `npm ci`, `npm test`, `npm run test:ui`, `npm run build`. Rehearse SQL with actual PostgreSQL/pooler on staging and verify backups.
 
-```powershell
-cd "C:\Users\shrey\.github\DSU-API"
-git add .
-git diff --cached --name-only
-git commit -m "Add DSU API and Render configuration"
-git push -u origin main
+The runner bootstraps `202610130001_erp.sql` and `202610130002_operator_role.sql` before numbered extensions for fresh databases. Existing ledger/checksums stay intact. A transaction/advisory lock protects application; changed historical checksums are rejected. Never edit/rename applied migrations. Additive `202610150001_backend_boundary.sql` and `202610150002_student_workspace.sql` add backend grants, ownership tables, publication and indexes. Existing drives default to unpublished.
 
-cd "C:\Users\shrey\.github\DSU-Backend"
-git add .
-git diff --cached --name-only
-git commit -m "Add DSU backend gateway and Render configuration"
-git push -u origin main
-```
+Run `npm run db:migrate` from a protected operator machine with `.env.operator`. Provision dsu_api only if required: `npm run db:provision` rotates its password and updates ignored runtime configuration, so coordinate consumers. Never put admin credentials in Render/web. Do not rerun CSV imports during deployment.
 
-The remotes are `DSU-ERP/DSU-API` and `DSU-ERP/DSU-Backend`. GitHub access is required. If a push is rejected because the remote has commits, reconcile them before retrying; do not force-push.
+## Backend
 
-## 2. Deploy API first
-
-In https://dashboard.render.com select **New → Web Service**, connect GitHub, and select `DSU-ERP/DSU-API`. Grant Render access to this organization/repository if needed.
+Root render.yaml defines backend plus shared Key Value. Choose a region near the database; Singapore is a configurable starting point. Starter definitions are not certified capacity sizing.
 
 | Setting | Value |
-| --- | --- |
-| Name | dsu-api (or another available name) |
-| Branch | main |
-| Language / runtime | Node |
-| Root directory | Leave empty |
-| Build command | npm ci --omit=dev |
-| Start command | npm start |
-| Health check path | /health/ready |
+|---|---|
+| Root | repository root |
+| Build | `npm ci --omit=dev` |
+| Start | `npm start` |
+| Health | `/health/ready` |
+| Node | 24 |
 
-Use an always-on paid instance for production. Choose the same region for API and Backend, preferably close to the Supabase database (the supplied pooler is in Seoul). Do not assume a particular Render region is available; select from the dashboard.
+Set restricted DATABASE_URL, Supabase URL/publishable key and SERVICE_TOKEN. Upload the real CA as a Render secret file; set DATABASE_CA_PATH to its /etc/secrets path. Keep TLS verification. Render supplies PORT. TRUST_PROXY=1 assumes one Render ingress hop; revisit for another topology. CORS origins are exact or empty for server-only clients. Production uses RATE_LIMIT_MODE=redis and shared Key Value URL.
 
-Under Environment, use **Add from .env** and paste the contents of:
+Keep a stable ASSESSMENT_CODE_SECRET of at least 32 characters. Rotation invalidates class codes; Blueprint generates it once. Student AI uses backend OPENROUTER_API_KEY, STUDENT_AI_MODEL and optional provider routing. Choose a model/provider with structured output and verify in staging. Missing AI configuration returns a clear unavailable error; records, placement, calendar and objective practice continue working. Saved answers support evaluation retry.
 
-`C:\Users\shrey\.github\DSU-API\.local\render-api.env`
+## Web
 
-This private file contains the actual runtime credentials and production settings:
+Use DSU-WEB/render.yaml, root DSU_ERP, build `npm ci && npm run env:check && npm run build`, start `npm start -- --hostname 0.0.0.0 --port $PORT`, health /health/live. /health/ready separately probes backend.
 
-| Variable | Purpose |
-| --- | --- |
-| NODE_ENV | production |
-| NODE_VERSION | 24 |
-| TRUST_PROXY | 1 |
-| DATABASE_URL | Existing restricted dsu_api session-pooler connection, with password |
-| DATABASE_SSL | true |
-| DATABASE_CA_PATH | /etc/secrets/prod-ca-2021.crt |
-| SUPABASE_URL | Existing project URL |
-| SUPABASE_PUBLISHABLE_KEY | Existing publishable key |
-| SERVICE_TOKEN | Existing shared API/backend secret |
-| CORS_ORIGINS | Empty; the API receives server-to-server calls |
+Set public Supabase URL/publishable key at build and real HTTPS DSU_BACKEND_URL. Web has no DB or service-role secrets. Existing officer Friday integrations use optional web-side OpenRouter/search/mail; student AI uses backend settings.
 
-If Render omits the empty CORS_ORIGINS entry, that is fine: the API defaults to an empty browser-origin allowlist. Render supplies PORT automatically. DATABASE_ADMIN_URL is intentionally absent: deployment uses the restricted database account, and migrations/provisioning have already run.
+Blueprint generates persistent base64 32-byte NEXT_SERVER_ACTIONS_ENCRYPTION_KEY. Reuse across builds/replicas of one service pool. RENDER_GIT_COMMIT supplies deployment ID. Public env changes require rebuild. Configure Supabase site/confirmation URLs for the real hostname and verify signup/password sign-in.
 
-On the API service's **Environment → Secret Files → Add Secret File**, enter:
+## Access and publication
 
-- Filename: `prod-ca-2021.crt`
-- Contents: the complete text of `C:\Users\shrey\Downloads\prod-ca-2021.crt`, including its BEGIN/END CERTIFICATE lines.
+`npm run access:grant -- <auth-user-uuid> student <USN>` links an existing Auth user to an official record. Use scripts/grant-placement-officer.js for officers. Signup metadata never authorizes roles. Officers publish intended drives, create tests under Student tests & campus, and share class codes directly. Public notices omit codes.
 
-Save and deploy after both variables and certificate are configured. If service creation starts an earlier deployment, let it redeploy after adding the certificate. The file is mounted at `/etc/secrets/prod-ca-2021.crt`; do not use the Windows path in Render.
+## Required legacy-RPC cutover
 
-Copy the actual HTTPS service URL shown by Render. Verify `<API_URL>/health/ready` returns `{"status":"ready"}`. The root `/` is not a health endpoint and can return 404.
+Additive migrations retain authenticated RPC grants during rolling deploy. After **both** new apps work, run `npm run access:lock-rpc` to preview, then `npm run access:lock-rpc -- --apply` to revoke authenticated execution of all six legacy PostgREST RPCs (campus, batch, placement read/write, import history and Friday rename). Until then, old RPC clients can bypass backend request limits, although SQL authorization still applies. Backend grants remain. Recheck both roles. Rolling back to an old direct-RPC web requires reviewed grants rollback.
 
-## 3. Deploy Backend
+The 18 October integration also requires the fetched placement-import and Friday-rename migrations, followed by `202610180001_friday_backend.sql` and `202610180002_assessment_grading_progress.sql`. The standard migration runner applies these in order. Written assessment grading now persists at most five answers per request; resuming evaluation retains completed batches.
 
-Create another **Web Service**, connected to `DSU-ERP/DSU-Backend`. Use the same settings above, with name `dsu-backend`. Root directory remains empty.
+## Release evidence
 
-Open:
+Confirm readiness, separate-student isolation, officer access, profile save, published-drive registration, code/batch/window checks, original timer after reload, evaluation recovery and real media permissions. Fixtures do not prove live AI quality/browser speech. Monitor request IDs, errors, DB/Redis limits and provider costs before increasing traffic.
 
-`C:\Users\shrey\.github\DSU-Backend\.local\render-backend.env`
-
-Replace only the placeholder DSU_API_URL with the actual API HTTPS URL. It must be an origin, such as `https://your-api-name.onrender.com`, without `/v1` or `/health/ready`.
-
-Use **Add from .env** to paste that file into Backend's environment:
-
-| Variable | Purpose |
-| --- | --- |
-| NODE_ENV | production |
-| NODE_VERSION | 24 |
-| TRUST_PROXY | 1 |
-| DSU_API_URL | Actual API HTTPS origin |
-| SERVICE_TOKEN | Same value as API, already included in the exported file |
-| CORS_ORIGINS | http://localhost:3000 for the current local website |
-
-When the website is hosted, replace/add its exact HTTPS origin in CORS_ORIGINS (comma-separated, no paths or spaces). Next.js currently calls the gateway on the server, so this setting is not authentication. Backend does not need database credentials or the CA certificate.
-
-Deploy and verify `<BACKEND_URL>/health/ready` returns `{"status":"ready"}`. An unauthenticated call to `/api/v1/students` should return 401.
-
-## 4. Connect the website
-
-In `C:\Users\shrey\.github\DSU-WEB\DSU_ERP\.env.local`, replace the existing DSU_BACKEND_URL line with:
-
-```dotenv
-DSU_BACKEND_URL=https://YOUR-ACTUAL-BACKEND.onrender.com
-```
-
-Keep the existing Supabase URL/key. Restart Next.js. Only the website needs to run locally once the two Render services are healthy. Sign in at http://localhost:3000/login using the administrator account's email/password. If WEB is hosted later, set DSU_BACKEND_URL in that host's server environment and redeploy. Never expose SERVICE_TOKEN or DATABASE_URL with NEXT_PUBLIC_ variables.
-
-## Troubleshooting
-
-- Missing certificate / ENOENT: add the secret file with the exact filename and Linux path above.
-- Startup database error: use the exported restricted DATABASE_URL unchanged; the owner/postgres connection is deliberately rejected by the API.
-- Backend startup failure: check HTTPS DSU_API_URL and SERVICE_TOKEN. Replace the placeholder before deployment.
-- Backend readiness 503: check API readiness and the API URL first.
-- Sign-in succeeds but portal cannot load: verify DSU_BACKEND_URL, both service health endpoints, and matching SERVICE_TOKEN values.
-- Access pending: a Supabase Auth account also needs an ERP membership. The administrator UUID supplied in this conversation has already been assigned.
-- Free services sleep after 15 minutes of inactivity and can take about a minute to wake. The gateway's 12-second request timeout can expire during API cold starts. Use always-on instances for reliable production access.
-
-The generated credential files are ignored by Git. Import them through Render's Environment UI; do not commit them. These instructions do not mean deployment has been performed or billed.
-
-## Official references
-
-- https://render.com/docs/web-services
-- https://render.com/docs/configure-environment-variables
-- https://render.com/docs/health-checks
-- https://render.com/docs/free
+References: [Render Blueprint](https://render.com/docs/blueprint-spec), [deploys](https://render.com/docs/deploys), [Next action keys](https://nextjs.org/docs/messages/failed-to-find-server-action).
