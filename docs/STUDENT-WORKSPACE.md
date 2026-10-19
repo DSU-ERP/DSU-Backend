@@ -4,7 +4,7 @@ The supplied feature document describes another application. Its feature descrip
 
 | Area | Implemented behavior |
 |---|---|
-| Identity/profile | Signup/signin, operator-linked identity, five-step setup, optimistic saves, read-only official academics, career links and preferences |
+| Identity/profile | Student/officer entry choices with database role checks, verified-email record matching, five-step setup, optimistic drafts, read-only official academics, career links and preferences |
 | Shell | Responsive nav/collapse, persistent dark/light theme, command search, account and real notices |
 | Dashboard/readiness | Shared interview rubric, missing scores distinguished, activity streak, real schedule/deadlines/applications and AI action plan |
 | Opportunities | Published cohort drives, search, full details/PDF, academic/package eligibility, confirmed apply/withdraw, JD chat handoff |
@@ -19,6 +19,12 @@ The supplied feature document describes another application. Its feature descrip
 | Practice | Six categories × five levels, authored questions, server-enforced 70% unlock and history |
 | Assigned tests | Officer authoring, hashed six-digit code, cohort/window checks, one submission, identity snapshot and officer CSV results |
 | Calendar/notices | Personal and officer-cohort events, Kolkata week boundaries, list/week/ICS, per-student broadcast read receipts |
+
+## Registration and record ownership
+
+An email must be confirmed by Supabase Auth before official student data is returned. A unique matching contact email, or a confirmed `<USN>@dsu.edu.in` address for an existing USN, permits automatic linking. Duplicate matches and records already claimed by another account require campus review. A typed USN alone never proves record ownership; unmatched submissions are saved as pending without a student membership. Placement officer access is assigned by an operator.
+
+`202610190006_verified_student_link.sql` hardens the legacy enrollment-link function without changing earlier migration checksums. The API uses the verified-identity link function on completion. Apply pending migrations through the protected operator workflow when authorized. Committing migration files does not apply them to the shared database.
 
 ## Operating limits
 
