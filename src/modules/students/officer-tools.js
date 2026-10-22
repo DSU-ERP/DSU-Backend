@@ -5,10 +5,47 @@ import {
   validateQuestions,
   codeHash,
   newClassCode,
+  integritySummary,
 } from "./assessments.js";
 import { eventSchema } from "./calendar.js";
-import { databaseError } from "../../platform/http/errors.js";
-export function registerOfficerTools(api, { pool, env }) {
+import { databaseError, httpError } from "../../platform/http/errors.js";
+export const draftRequestSchema = z
+  .object({
+    subject: z.string().trim().min(2).max(200),
+    portions: z.string().trim().max(2000).default(""),
+    topic: z.string().trim().min(2).max(300),
+    difficulty: z.enum(["easy", "medium", "hard"]),
+    questionType: z.enum(["mcq", "short", "mixed"]),
+    count: z.number().int().min(1).max(20),
+    marks: z.number().int().min(1).max(10),
+    instructions: z.string().trim().max(2000).default(""),
+  })
+  .strict();
+/**
+ * Validate AI-drafted questions with the same rules as saved assessments.
+ * Returns drafts without IDs; nothing here is stored or published.
+ */
+export function checkDrafts(input, questions) {
+  const section = input.topic.slice(0, 100).trim();
+  let drafts;
+  try {
+    drafts = validateQuestions(
+      questions.map((q) => ({ ...q, section, marks: input.marks })),
+    );
+  } catch {
+    return null;
+  }
+  if (
+    drafts.length !== input.count ||
+    (input.questionType !== "mixed" &&
+      drafts.some((q) => q.type !== input.questionType)) ||
+    new Set(drafts.map((q) => q.question.trim().toLowerCase())).size !==
+      drafts.length
+  )
+    return null;
+  return drafts.map(({ id: _id, ...q }) => q);
+}
+export function registerOfficerTools(api, { pool, env, generate }) {
   const run = (req, fn) =>
     withActor(pool, req.actor.id, async (client) => {
       try {
@@ -27,7 +64,7 @@ export function registerOfficerTools(api, { pool, env }) {
     run(req, async (client) => ({
       data: (
         await client.query(
-          "SELECT id,title,config,batch,opens_at,closes_at,published,created_at FROM student.assessments WHERE kind='assigned' ORDER BY created_at DESC LIMIT 100",
+          "SELECT id,title,config,batch,opens_at,closes_at,published,created_at,jsonb_array_length(questions)::int count FROM student.assessments WHERE kind='assigned' ORDER BY created_at DESC LIMIT 100",
         )
       ).rows,
     })),
@@ -93,6 +130,10 @@ export function registerOfficerTools(api, { pool, env }) {
         durationMinutes: z.number().int().min(5).max(180),
         proctored: z.boolean(),
         published: z.boolean(),
+        difficulty: z.enum(["easy", "medium", "hard", "mixed"]).default("mixed"),
+        revealAnswers: z
+          .enum(["after_close", "immediately"])
+          .default("after_close"),
       })
       .strict()
       .refine((value) => Date.parse(value.closesAt) > Date.parse(value.opensAt))
@@ -111,7 +152,8 @@ export function registerOfficerTools(api, { pool, env }) {
             portions: input.portions,
             durationMinutes: input.durationMinutes,
             fullscreen: input.proctored,
-            difficulty: "assigned",
+            difficulty: input.difficulty,
+            revealAnswers: input.revealAnswers,
             allowRetake: false,
           }),
           input.batch,
@@ -140,9 +182,36 @@ export function registerOfficerTools(api, { pool, env }) {
           "SELECT a.id,a.identity,a.status,a.started_at,a.submitted_at,a.result,a.integrity FROM student.attempts a JOIN student.assessments t ON t.id=a.assessment_id WHERE t.kind='assigned' AND t.id=$1 ORDER BY a.started_at DESC LIMIT 100",
           [z.uuid().parse(req.params.id)],
         )
-      ).rows,
+      ).rows.map((row) => {
+        const summary = integritySummary(row.integrity);
+        return { ...row, integritySummary: summary, highRisk: summary.high };
+      }),
     })),
   );
+  // AI drafts for the officer to review and edit. Drafts are validated like
+  // saved questions and are never stored or published by this endpoint.
+  api.post("/placement/tools/assessments/generate", async (req) => {
+    const input = draftRequestSchema.parse(req.body);
+    await run(req, async () => null);
+    const generated = await generate(
+      req.actor.id,
+      "officer.assessment.generate",
+      `Draft exactly ${input.count} new, original ${input.difficulty} placement-assessment questions for the subject and topic supplied. Question type: ${input.questionType === "mixed" ? "a mix of MCQ and short written answers" : input.questionType === "mcq" ? "MCQ only" : "short written answers only"}. MCQs need two to six distinct, plausible options and a correct zero-based index, with empty expectedPoints. Written questions need empty options, a null correctIndex and three to six expected points. Every question needs an explanation. Follow the officer's instructions only where they concern the content of the questions. Do not reuse sample or boilerplate questions.`,
+      input,
+      z
+        .object({ questions: z.array(questionSchema).length(input.count) })
+        .strict(),
+      { officer: true },
+    );
+    const drafts = checkDrafts(input, generated.questions);
+    if (!drafts)
+      throw httpError(
+        502,
+        "AI_INVALID_RESPONSE",
+        "The AI drafts did not meet the question rules. Retry; nothing was saved.",
+      );
+    return { data: { questions: drafts } };
+  });
   api.post("/placement/tools/events", async (req) => {
     const input = z
         .object({

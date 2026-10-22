@@ -14,6 +14,8 @@ import {registerRegistrationRoutes} from './modules/students/registration.js';
 import { registerCampusRoutes } from "./modules/campus/routes.js";
 import { registerPortalRoutes } from "./modules/portal/routes.js";
 import { registerStudentRoutes } from "./modules/students/routes.js";
+import { registerDriveIntakeRoutes } from "./modules/portal/drive-intake.js";
+import { createResearch } from "./modules/research/index.js";
 export { httpError, sameSecret, authVerifier };
 export async function buildApp({
   pool,
@@ -22,6 +24,7 @@ export async function buildApp({
   logger = true,
   redis,
   studentAi,
+  research = createResearch({ env }),
 }) {
   if (!env.SERVICE_TOKEN || env.SERVICE_TOKEN.length < 32)
     throw new Error("SERVICE_TOKEN must contain at least 32 characters");
@@ -31,7 +34,9 @@ export async function buildApp({
     logController: new LogController({ disableRequestLogging: true }),
     bodyLimit: 15 * 1024 * 1024,
     requestTimeout: 45000,
-    connectionTimeout: 10000,
+    // A socket can be idle while research, AI or document extraction runs.
+    // Their bounded work can exceed 10 s; closing it early loses the response.
+    connectionTimeout: 90000,
     trustProxy: env.TRUST_PROXY === "1" ? 1 : false,
   });
   await app.register(helmet);
@@ -103,6 +108,8 @@ export async function buildApp({
     const safeFailure = [
       "AI_NOT_CONFIGURED",
       "AI_UNAVAILABLE",
+      "AI_TIMEOUT",
+      "AI_OUTPUT_LIMIT",
       "AI_INVALID_RESPONSE",
       "INVALID_GRADING",
       "BLUEPRINT_MISMATCH",
@@ -169,7 +176,7 @@ export async function buildApp({
     },
   );
 
-  const generate = createStudentAI(pool, env, studentAi);
+  const generate = createStudentAI(pool, env, studentAi, { logger: app.log });
   const registerRoutes = async (api, { requireServiceToken }) => {
     api.addHook("preHandler", async (req) => {
       if (
@@ -190,8 +197,9 @@ export async function buildApp({
     registerRegistrationRoutes(api, {pool});
     registerCampusRoutes(api, { pool });
     registerPortalRoutes(api, { pool });
-    registerStudentRoutes(api, { pool, generate, env });
-    registerOfficerTools(api, { pool, env });
+    registerStudentRoutes(api, { pool, generate, env, research });
+    registerDriveIntakeRoutes(api, { pool, generate });
+    registerOfficerTools(api, { pool, env, generate });
   };
   await app.register(registerRoutes, {
     prefix: "/v1",
@@ -202,6 +210,7 @@ export async function buildApp({
     requireServiceToken: false,
   });
   app.addHook("onClose", async () => {
+    await Promise.resolve(research?.close?.()).catch(() => {});
     await pool.end();
   });
   return app;

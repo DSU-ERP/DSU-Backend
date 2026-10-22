@@ -54,8 +54,13 @@ export async function withActor(
     await client.query(
       repeatableRead ? "BEGIN ISOLATION LEVEL REPEATABLE READ" : "BEGIN",
     );
-    await client.query("SELECT set_config('app.user_id', $1, true)", [actorId]);
-    await client.query("SELECT set_config('request.jwt.claims', $1, true)", [JSON.stringify({sub:actorId,role:'authenticated'})]);
+    // Both settings belong to the same transaction. One statement avoids a
+    // network round trip for every authenticated read/write without changing
+    // row-security scope or persisting either setting on a pooled connection.
+    await client.query(
+      "SELECT set_config('app.user_id', $1, true), set_config('request.jwt.claims', $2, true)",
+      [actorId, JSON.stringify({sub:actorId,role:'authenticated'})],
+    );
     const result = await fn(client);
     await client.query("COMMIT");
     return result;

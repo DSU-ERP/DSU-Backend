@@ -17,6 +17,8 @@ const origin = z
       return false;
     }
   });
+// Empty values from env files mean "not set".
+const blank = (type) => z.preprocess((v) => (v === "" ? undefined : v), type);
 const schema = z
   .object({
     NODE_ENV: z
@@ -63,6 +65,12 @@ const schema = z
     OPENROUTER_PROVIDER: z.string().optional(),
     STUDENT_AI_MODEL: z.string().optional(),
     STUDENT_AI_CONCURRENCY: z.coerce.number().int().min(1).max(10).default(2),
+    // Web research (official APIs only). With no key, research is disabled.
+    BRAVE_SEARCH_API_KEY: blank(z.string().optional()),
+    GOOGLE_SEARCH_API_KEY: blank(z.string().optional()),
+    GOOGLE_SEARCH_CX: blank(z.string().optional()),
+    WEB_SEARCH_PROVIDERS: blank(z.string().default("brave,google")),
+    WEB_SEARCH_TRANSPORT: blank(z.enum(["direct", "mcp"]).default("direct")),
     LOG_LEVEL: z
       .enum(["debug", "info", "warn", "error", "fatal", "silent"])
       .default("info"),
@@ -76,6 +84,17 @@ const schema = z
         .some((value) => !origin.safeParse(value.trim()).success)
     )
       invalid("CORS_ORIGINS", "Use exact comma-separated origins");
+    if (
+      env.WEB_SEARCH_PROVIDERS.split(",")
+        .map((value) => value.trim().toLowerCase())
+        .some((value) => value && !["brave", "google"].includes(value))
+    )
+      invalid("WEB_SEARCH_PROVIDERS", "Use brave and/or google, comma-separated");
+    if (!!env.GOOGLE_SEARCH_API_KEY !== !!env.GOOGLE_SEARCH_CX)
+      invalid(
+        env.GOOGLE_SEARCH_API_KEY ? "GOOGLE_SEARCH_CX" : "GOOGLE_SEARCH_API_KEY",
+        "Google Programmable Search needs both the API key and the engine ID",
+      );
     if (
       env.RATE_LIMIT_MODE === "redis" &&
       !/^rediss?:\/\//.test(env.REDIS_URL || "")

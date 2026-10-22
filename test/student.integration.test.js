@@ -37,12 +37,35 @@ test(
     ]);
     let failEvaluation = false;
     const feedback = {
-      scores: { overall: 7, communication: 8, confidence: 6, accuracy: 7 },
+      scores: {
+        relevance: 8,
+        clarity: 7,
+        confidence: 6,
+        structure: 7,
+        specificity: 6,
+        roleFit: 7,
+        communication: 8,
+        depth: 7,
+        conciseness: 7,
+        accuracy: 7,
+        overall: 7,
+      },
       quality: "Good",
       explanation: "Use more specific evidence.",
       strengths: ["Clear structure"],
       improvements: ["Quantify the outcome"],
       followUp: null,
+      turn: { kind: "answer", scored: true, reason: "A genuine answer." },
+      star: {
+        applicable: false,
+        situation: false,
+        task: false,
+        action: false,
+        result: false,
+        missing: [],
+        score: null,
+        feedback: null,
+      },
     };
     const sampleQuestion = {
       section: "Reasoning",
@@ -75,6 +98,22 @@ test(
               expectedPoints: ["Actual evidence"],
             }),
           ),
+          context: {
+            jdSummary: "",
+            responsibilities: [],
+            mustHaveSkills: [],
+            resumeSummary: "",
+            strengths: [],
+            risks: [],
+            objective: "Assess project evidence.",
+            sections: [
+              {
+                name: "Projects",
+                description: "Project evidence",
+                questionCount: input.config.questionCount,
+              },
+            ],
+          },
         };
       if (kind === "interview.coach")
         return {
@@ -131,6 +170,7 @@ test(
           recommendations: ["Tailor to each JD"],
           missingKeywords: ["Testing"],
           formattingIssues: [],
+          profile: { academics: [], skills: ["JavaScript"], projects: ["Campus API"], achievements: [] },
         };
       if (kind === "readiness.plan")
         return {
@@ -371,7 +411,7 @@ test(
           { mode: "proctored", accepted: true },
         );
         const live = await request("/student/sessions/" + s.id);
-        assert.equal(live.answers, undefined);
+        assert.deepEqual(live.answers, []);
         assert.equal(live.questions, undefined);
         assert.equal(live.report, null);
         const answer = await request("/student/sessions/" + s.id + "/answer", {
@@ -379,6 +419,13 @@ test(
           answer: "I shipped a tested application.",
         });
         assert.equal(answer.feedback, null);
+        const conversation = await request("/student/sessions/" + s.id);
+        assert.equal(conversation.answers[0].answer, "I shipped a tested application.");
+        assert.ok(conversation.answers[0].question);
+        assert.deepEqual(conversation.answers[0].feedback, {});
+        assert.equal(conversation.answers[0].original_feedback, null);
+        assert.equal(conversation.answers[0].coaching, undefined);
+        assert.equal(conversation.report, null);
         for (const kind of ["tab-hidden", "screen-stopped", "fullscreen-exit"])
           await request("/student/sessions/" + s.id + "/integrity", { kind });
         const result = await request("/student/sessions/" + s.id);
@@ -457,6 +504,12 @@ test(
             const qs = practiceQuestions(category, level);
             assert.ok(qs.length > 0);
             for (const q of qs) {
+              if (q.type === "short") {
+                // Written practice items are graded against expected points.
+                assert.ok(q.expectedPoints.length > 0);
+                assert.equal(q.correctIndex, null);
+                continue;
+              }
               assert.ok(
                 q.correctIndex >= 0 && q.correctIndex < q.options.length,
               );

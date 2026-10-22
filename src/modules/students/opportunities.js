@@ -61,7 +61,7 @@ export function opportunityEligibility(
       "Official university academics, drive criteria, deadline and active offers. AI advice does not change this decision.",
   };
 }
-async function highestRank(client, studentId) {
+export async function highestRank(client, studentId) {
   return Number(
     (
       await client.query(
@@ -71,7 +71,7 @@ async function highestRank(client, studentId) {
     ).rows[0].rank,
   );
 }
-async function driveRecord(client, id) {
+export async function driveRecord(client, id) {
   const { rows } = await client.query(
     "SELECT d.*,d.drive_date::text AS drive_date,d.registration_deadline::text AS registration_deadline,c.name company FROM placement.drives d JOIN placement.companies c ON c.id=d.company_id WHERE d.id=$1",
     [id],

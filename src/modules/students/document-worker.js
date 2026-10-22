@@ -1,8 +1,12 @@
-import { parentPort, workerData } from "node:worker_threads";
+import { extractionResult } from "./text-extraction.js";
+// Deliberate limits are reported by code so the student sees the real reason.
+const limit = (code) => Object.assign(new Error(code), { limit: code });
+process.once("message", async (workerData) => {
 try {
   const buffer = Buffer.from(workerData.data);
   const name = workerData.filename.toLowerCase();
-  let text;
+  let text,
+    pageCount = null;
   if (name.endsWith(".pdf")) {
     if (!buffer.subarray(0, 5).equals(Buffer.from("%PDF-")))
       throw Error("Invalid PDF");
@@ -10,8 +14,10 @@ try {
     const parser = new PDFParse({ data: buffer });
     try {
       const info = await parser.getInfo();
-      if (info.total > 100) throw Error("Too many pages");
-      text = (await parser.getText()).text;
+      if (info.total > 100) throw limit("TOO_MANY_PAGES");
+      pageCount = info.total;
+      // No "-- n of m --" page markers in stored text.
+      text = (await parser.getText({ pageJoiner: "" })).text;
     } finally {
       await parser.destroy();
     }
@@ -24,16 +30,15 @@ try {
         total += buffer.readUInt32LE(i + 24);
         entries++;
         if (total > 20 * 1024 * 1024 || entries > 1000)
-          throw Error("Expanded document is too large");
+          throw limit("DOCUMENT_TOO_LARGE");
       }
     const mammoth = await import("mammoth");
     text = (
       await mammoth.extractRawText({ buffer }, { externalFileAccess: false })
     ).value;
   } else text = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
-  parentPort.postMessage({
-    text: text.replaceAll("\u0000", "").slice(0, 80000),
-  });
-} catch {
-  parentPort.postMessage({ error: "Unable to extract text" });
+  process.send({ type: "document:result", result: extractionResult(text, pageCount) }, () => process.disconnect());
+} catch (error) {
+  process.send({ type: "document:result", result: { error: error?.limit || "UNREADABLE" } }, () => process.disconnect());
 }
+});

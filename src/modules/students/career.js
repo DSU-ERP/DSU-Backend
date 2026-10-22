@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { runStudent, activity } from "./context.js";
+import { runStudent, activity, owned } from "./context.js";
+import { httpError } from "../../platform/http/errors.js";
 const words = z.array(z.string().max(1500)).max(20);
+const profileItems = z.array(z.string().max(300)).max(30);
 export const careerSchema = z
   .object({
     summary: z.string().max(5000),
@@ -34,6 +36,15 @@ export const careerSchema = z
     recommendations: words,
     missingKeywords: words,
     formattingIssues: words,
+    // Facts found in the resume only; an empty list when the resume has none.
+    profile: z
+      .object({
+        academics: profileItems,
+        skills: profileItems,
+        projects: profileItems,
+        achievements: profileItems,
+      })
+      .strict(),
   })
   .strict();
 export function registerCareerRoutes(api, { pool, generate }) {
@@ -57,6 +68,36 @@ export function registerCareerRoutes(api, { pool, generate }) {
       },
     })),
   );
+  api.get("/student/career/reports", async (req) =>
+    runStudent(pool, req.actor.id, async (client) => ({
+      data: (
+        await client.query(
+          "SELECT id,target,created_at,content->>'bestFit' AS best_fit FROM student.reports WHERE user_id=$1 AND kind='career' ORDER BY created_at DESC,id LIMIT 50",
+          [req.actor.id],
+        )
+      ).rows,
+    })),
+  );
+  api.get("/student/career/reports/:id", async (req) =>
+    runStudent(pool, req.actor.id, async (client) => {
+      const report = await owned(
+        client,
+        "reports",
+        z.uuid().parse(req.params.id),
+        req.actor.id,
+      );
+      if (report.kind !== "career")
+        throw httpError(404, "NOT_FOUND", "This record is unavailable.");
+      return {
+        data: {
+          id: report.id,
+          target: report.target,
+          content: report.content,
+          created_at: report.created_at,
+        },
+      };
+    }),
+  );
   api.post("/student/career", async (req) => {
     const input = z
       .object({
@@ -74,7 +115,7 @@ export function registerCareerRoutes(api, { pool, generate }) {
     const report = await generate(
       req.actor.id,
       "career.analyze",
-      "Analyze this resume against the student's target. Provide evidence-based role suggestions, a practical roadmap, risks with mitigation and resume screening advice. State missing evidence. Alignment and ATS health are advisory estimates; use null when evidence does not support a score.",
+      "Analyze this resume against the student's target. Provide evidence-based role suggestions, a practical roadmap, risks with mitigation and resume screening advice. State missing evidence. Alignment and ATS health are advisory estimates; use null when evidence does not support a score. The first roles entry must be the stated target role (or the role in the target job description) with its evidence-based fit; later entries are alternatives. profile lists only what the resume states: academics (degrees, institutions, scores as written), skills, projects (short name with one-line outcome) and achievements; leave a list empty when the resume has none and never add items from the target or your own assumptions.",
       {
         resume: input.resume,
         target: input.target,

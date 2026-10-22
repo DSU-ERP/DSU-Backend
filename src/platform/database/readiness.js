@@ -17,6 +17,12 @@ const required = [
   ["column", "placement", "companies", "job_categories"],
   ["function", "student", "placement_record", null],
   ["function", "placement", "notify_eligible_students", null],
+  ["column", "student", "attempts", "insights"],
+  ["function", "student", "assessment_creator", null],
+  ["column", "student", "documents", "meta"],
+  ["table", "placement", "drive_intakes", null],
+  ["column", "student", "interview_answers", "coaching"],
+  ["column", "student", "interviews", "context"],
 ];
 
 const missingSql = `

@@ -36,6 +36,17 @@ services:
         sync: false
       - key: STUDENT_AI_CONCURRENCY
         value: 2
+      # Web research: set one provider key (or both). Empty keeps it disabled.
+      - key: BRAVE_SEARCH_API_KEY
+        sync: false
+      - key: GOOGLE_SEARCH_API_KEY
+        sync: false
+      - key: GOOGLE_SEARCH_CX
+        sync: false
+      - key: WEB_SEARCH_PROVIDERS
+        value: brave,google
+      - key: WEB_SEARCH_TRANSPORT
+        value: direct
       - key: SERVICE_TOKEN
         sync: false
       - key: CORS_ORIGINS
