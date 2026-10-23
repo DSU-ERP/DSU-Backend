@@ -95,6 +95,22 @@ export async function extractDocument(filename, buffer) {
 }
 
 export function registerDocumentRoutes(api, { pool }) {
+  api.get("/student/documents", async (req) =>
+    runStudent(pool, req.actor.id, async (client) => {
+      const { rows } = await client.query(
+        "SELECT id,filename,kind,created_at,meta FROM student.documents WHERE user_id=$1 ORDER BY created_at DESC,id DESC",
+        [req.actor.id],
+      );
+      return {
+        data: rows.map((row) => ({
+          ...row,
+          // Extracted text may contain sensitive personal information. The
+          // settings screen only needs document metadata to show uploads.
+          pageCount: row.meta?.pageCount ?? null,
+        })),
+      };
+    }),
+  );
   api.post(
     "/student/documents",
     {

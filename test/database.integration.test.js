@@ -42,6 +42,11 @@ test(
     await db.query("INSERT INTO placement.officers(user_id) VALUES($1)", [
       users.officer,
     ]);
+    // Student A has completed skills onboarding (dashboard and /session home).
+    await db.query(
+      "INSERT INTO student.skill_profiles(student_id,onboarding_version) VALUES($1,1)",
+      [studentA],
+    );
     const app = await buildApp({
       pool,
       env: { SERVICE_TOKEN: "x".repeat(32), RATE_LIMIT_USER_MAX: 100 },
@@ -55,11 +60,12 @@ test(
         headers: { authorization: "Bearer " + user },
       });
     assert.equal((await app.inject('/api/v1/session')).statusCode,401);
-    assert.deepEqual((await get('/session')).json().data,{role:'student',home:'/student'});
-    assert.deepEqual((await get('/session?portal=student','officer')).json().data,{role:'placement_officer',home:'/placement'});
-    assert.deepEqual((await get('/session?portal=placement-officer')).json().data,{role:'student',home:'/student'});
-    assert.deepEqual((await get('/session','admin')).json().data,{role:null,home:'/access'});
-    assert.deepEqual((await get('/session','outsider')).json().data,{role:null,home:'/onboarding'});
+    assert.deepEqual((await get('/session')).json().data,{role:'student',home:'/student',onboardingRequired:false});
+    assert.deepEqual((await get('/session?portal=student','officer')).json().data,{role:'placement_officer',home:'/placement',onboardingRequired:false});
+    assert.deepEqual((await get('/session?portal=placement-officer')).json().data,{role:'student',home:'/student',onboardingRequired:false});
+    assert.deepEqual((await get('/session','admin')).json().data,{role:null,home:'/access',onboardingRequired:false});
+    assert.deepEqual((await get('/session','outsider')).json().data,{role:null,home:'/onboarding',onboardingRequired:false});
+    assert.deepEqual((await get('/session','b')).json().data,{role:'student',home:'/student/onboarding',onboardingRequired:true});
     await db.query('UPDATE placement.officers SET active=false WHERE user_id=$1',[users.officer]);
     assert.equal((await get('/session','officer')).json().data.role,null);
     await db.query('UPDATE placement.officers SET active=true WHERE user_id=$1',[users.officer]);

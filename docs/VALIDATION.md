@@ -1,5 +1,22 @@
 # Backend validation
 
+## Student Skills Intelligence — 23 October 2026
+
+- Added migration `202610220001_student_intelligence.sql` (NOT applied to the shared database). It adds the skills profile, platform accounts, encrypted credentials, snapshots, metrics, GitHub repositories, featured projects, AI summaries and summary attempts, the sync job queue and OAuth states. All tables use RLS keyed to `erp.students.id`, and officer reads go through `assert_officer` definer functions. Dense CGPA ranks come from one function, `erp.cgpa_ranks`, which the directory, exports, profiles, the dashboard and F.R.I.D.A.Y. all use.
+- New `src/modules/intelligence`:
+  - the canonical profile service;
+  - versioned onboarding and platform connections;
+  - GitHub through Octokit 5.0.5 (GitHub App web flow with PKCE and single-use state, fine-grained PAT fallback, AES-256-GCM storage with key ids, per-token revocation);
+  - the Hugging Face public API;
+  - validated LeetCode, HackerRank, LinkedIn and Kaggle links with labelled student-submitted figures, never fetched;
+  - an in-process SKIP LOCKED sync worker with backoff, lease checks and stale-job protection;
+  - officer categories, the ranked directory and export, Overview chart data, lookups;
+  - grounded AI summaries with cited evidence, sources-based withholding and attempt-based limits.
+- `/session` reports `onboardingRequired`, and the dashboard and readiness reads return 403 until onboarding is complete. The gate is skipped while the migration is missing, so sign-in on the shared database is unaffected.
+- `scripts/provision-dev-student.js` (dry run unless `--apply`) refuses protected or live project refs, unparsed or encoded connection tricks, databases without the isolated-development marker, and databases holding non-synthetic students. It was never run with `--apply`; no isolated project exists on this machine.
+- Two independent reviews found 8 backend issues, each fixed with a regression test. The worst was that reconnecting GitHub revoked the whole grant; revocation now removes one token.
+- **220 of 221 backend tests passed** (68 new intelligence tests). The one failure, "information events never count as integrity strikes", was already failing before this work. `test/mcp-web-search.test.js` hangs on this Windows machine (a child process does not exit), so it was excluded; that is also pre-existing. No live database, GitHub, Hugging Face or AI provider was contacted by any test.
+
 ## Interview security for both modes — 22 October 2026
 
 - Integrity warnings now apply to coached/mock and proctored interviews. Added restricted-window coverage, context-menu, drag/drop, navigation and picture-in-picture event kinds. New extra-display events are warnings. Inactivity remains informational; explicitly stored older informational events keep their original severity.

@@ -1,4 +1,6 @@
 import { runStudent } from "./context.js";
+import { httpError } from "../../platform/http/errors.js";
+import { onboardingRequired } from "../intelligence/student-routes.js";
 
 export function activityStreak(
   dates,
@@ -130,8 +132,12 @@ export async function dashboardData(client, official, actor) {
 export function registerDashboardRoutes(api, { pool }) {
   for (const resource of ["dashboard", "readiness"])
     api.get(`/student/${resource}`, async (req) =>
-      runStudent(pool, req.actor.id, async (client, official) => ({
-        data: await dashboardData(client, official, req.actor.id),
-      })),
+      runStudent(pool, req.actor.id, async (client, official) => {
+        // Skills onboarding comes before the dashboard (the web layout redirects too).
+        // /student/readiness returns the same payload, so it is gated the same way.
+        if (await onboardingRequired(client, official.id))
+          throw httpError(403, "ONBOARDING_REQUIRED", "Complete your skills onboarding to open the dashboard.");
+        return { data: await dashboardData(client, official, req.actor.id) };
+      }),
     );
 }

@@ -26,7 +26,8 @@
     "access:officer": "node --env-file-if-exists=.env --env-file-if-exists=.env.operator scripts/grant-placement-officer.js",
     "placement:import": "node --env-file-if-exists=.env --env-file-if-exists=.env.operator scripts/import-placement-records.js",
     "verify:placement-imports": "node --env-file-if-exists=.env --env-file-if-exists=.env.operator scripts/verify-placement-imports.js",
-    "verify:friday-rename": "node --env-file-if-exists=.env --env-file-if-exists=.env.operator scripts/verify-friday-rename.js"
+    "verify:friday-rename": "node --env-file-if-exists=.env --env-file-if-exists=.env.operator scripts/verify-friday-rename.js",
+    "dev:provision-student": "node scripts/provision-dev-student.js"
   },
   "dependencies": {
     "@fastify/cors": "^11.1.0",
@@ -38,6 +39,7 @@
     "ioredis": "^6.0.0",
     "jose": "^6.2.12",
     "mammoth": "^1.13.0",
+    "octokit": "5.0.5",
     "pdf-parse": "^2.4.5",
     "pg": "^8.16.3",
     "zod": "^4.1.0"

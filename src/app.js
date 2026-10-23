@@ -16,6 +16,7 @@ import { registerPortalRoutes } from "./modules/portal/routes.js";
 import { registerStudentRoutes } from "./modules/students/routes.js";
 import { registerDriveIntakeRoutes } from "./modules/portal/drive-intake.js";
 import { createResearch } from "./modules/research/index.js";
+import { registerIntelligenceRoutes } from "./modules/intelligence/routes.js";
 export { httpError, sameSecret, authVerifier };
 export async function buildApp({
   pool,
@@ -25,6 +26,8 @@ export async function buildApp({
   redis,
   studentAi,
   research = createResearch({ env }),
+  // Provider clients for platform sync (GitHub, Hugging Face). Tests inject fakes.
+  integrations,
 }) {
   if (!env.SERVICE_TOKEN || env.SERVICE_TOKEN.length < 32)
     throw new Error("SERVICE_TOKEN must contain at least 32 characters");
@@ -200,6 +203,7 @@ export async function buildApp({
     registerStudentRoutes(api, { pool, generate, env, research });
     registerDriveIntakeRoutes(api, { pool, generate });
     registerOfficerTools(api, { pool, env, generate });
+    registerIntelligenceRoutes(api, { pool, env, generate, integrations });
   };
   await app.register(registerRoutes, {
     prefix: "/v1",

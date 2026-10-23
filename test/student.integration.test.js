@@ -31,6 +31,11 @@ test(
         "INSERT INTO erp.memberships(user_id,role,student_id) VALUES($1,'student',$2)",
         [users[user], students[i]],
       );
+      // Skills onboarding completed, so the dashboard is available.
+      await db.query(
+        "INSERT INTO student.skill_profiles(student_id,onboarding_version) VALUES($1,1)",
+        [students[i]],
+      );
     }
     await db.query("INSERT INTO placement.officers(user_id) VALUES($1)", [
       users.officer,

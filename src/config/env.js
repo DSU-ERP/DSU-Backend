@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { keysValid } from "../platform/crypto/secrets.js";
 const origin = z
   .string()
   .url()
@@ -71,6 +72,17 @@ const schema = z
     GOOGLE_SEARCH_CX: blank(z.string().optional()),
     WEB_SEARCH_PROVIDERS: blank(z.string().default("brave,google")),
     WEB_SEARCH_TRANSPORT: blank(z.enum(["direct", "mcp"]).default("direct")),
+    // Student skills intelligence (docs/STUDENT-INTELLIGENCE.md section 8).
+    INTEGRATION_ENCRYPTION_KEYS: blank(z.string().max(4000).optional()),
+    INTEGRATION_ENCRYPTION_KEY_ID: blank(z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).optional()),
+    GITHUB_APP_CLIENT_ID: blank(z.string().max(100).optional()),
+    GITHUB_APP_CLIENT_SECRET: blank(z.string().max(200).optional()),
+    GITHUB_APP_SLUG: blank(z.string().regex(/^[a-z0-9-]{1,100}$/).optional()),
+    GITHUB_OAUTH_REDIRECT_URL: blank(z.string().url().optional()),
+    SYNC_WORKER: blank(z.enum(["on", "off"]).default("on")),
+    SYNC_WORKER_CONCURRENCY: blank(z.coerce.number().int().min(1).max(4).default(2)),
+    SYNC_INTERVAL_HOURS: blank(z.coerce.number().int().min(1).max(168).default(24)),
+    DSU_ENVIRONMENT: blank(z.enum(["development", "staging", "production"]).optional()),
     LOG_LEVEL: z
       .enum(["debug", "info", "warn", "error", "fatal", "silent"])
       .default("info"),
@@ -100,6 +112,26 @@ const schema = z
       !/^rediss?:\/\//.test(env.REDIS_URL || "")
     )
       invalid("REDIS_URL", "Required for shared rate limiting");
+    if (!!env.INTEGRATION_ENCRYPTION_KEYS !== !!env.INTEGRATION_ENCRYPTION_KEY_ID)
+      invalid(
+        env.INTEGRATION_ENCRYPTION_KEYS ? "INTEGRATION_ENCRYPTION_KEY_ID" : "INTEGRATION_ENCRYPTION_KEYS",
+        "Set the integration keys and the current key id together",
+      );
+    else if (
+      env.INTEGRATION_ENCRYPTION_KEYS &&
+      !keysValid(env.INTEGRATION_ENCRYPTION_KEYS, env.INTEGRATION_ENCRYPTION_KEY_ID)
+    )
+      invalid(
+        "INTEGRATION_ENCRYPTION_KEYS",
+        "Use kid:base64 entries of exactly 32 bytes that include the current key id",
+      );
+    if (env.GITHUB_OAUTH_REDIRECT_URL) {
+      const url = new URL(env.GITHUB_OAUTH_REDIRECT_URL);
+      if (!["https:", "http:"].includes(url.protocol) || url.username || url.password || url.hash)
+        invalid("GITHUB_OAUTH_REDIRECT_URL", "Use a plain http(s) callback URL");
+      else if (env.NODE_ENV === "production" && url.protocol !== "https:")
+        invalid("GITHUB_OAUTH_REDIRECT_URL", "HTTPS required");
+    }
     if (env.NODE_ENV === "production") {
       if (!env.ASSESSMENT_CODE_SECRET)
         invalid(

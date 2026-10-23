@@ -3,7 +3,8 @@ import { createPool } from "./integrations/supabase/db.js";
 import { readEnv } from "./config/env.js";
 import { schemaStatus } from "./platform/database/readiness.js";
 import Redis from "ioredis";
-let pool, redis, app;
+import { createSyncWorker } from "./modules/intelligence/worker.js";
+let pool, redis, app, worker;
 try {
   const env = readEnv();
   pool = createPool(env.DATABASE_URL, env);
@@ -60,6 +61,8 @@ try {
     const deadline = setTimeout(() => process.exit(1), 25000);
     deadline.unref();
     try {
+      // Let in-flight sync jobs finish (bounded) before the pool closes.
+      await worker?.stop();
       await app.close();
       if (redis) await redis.quit();
     } finally {
@@ -69,6 +72,11 @@ try {
   process.once("SIGTERM", () => void shutdown());
   process.once("SIGINT", () => void shutdown());
   await app.listen({ port: env.PORT, host: env.HOST });
+  // Platform sync worker (GitHub, Hugging Face). Off with SYNC_WORKER=off.
+  if (env.SYNC_WORKER !== "off" && env.NODE_ENV !== "test") {
+    worker = createSyncWorker({ pool, env });
+    worker.start();
+  }
 } catch (error) {
   console.error(
     JSON.stringify({
@@ -80,6 +88,7 @@ try {
         .slice(0, 300),
     }),
   );
+  await worker?.stop().catch(() => {});
   if (app) await app.close();
   else if (pool) await pool.end();
   redis?.disconnect();

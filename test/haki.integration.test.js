@@ -84,6 +84,7 @@ test("Observation Haki research, drive comparison, parsers, career history, dash
     );
     await db.query("INSERT INTO erp.academics(student_id,cgpa,current_backlog,attendance) VALUES($1,8.2,0,90)", [students[key]]);
     await db.query("INSERT INTO erp.memberships(user_id,role,student_id) VALUES($1,'student',$2)", [users[key], students[key]]);
+    await db.query("INSERT INTO student.skill_profiles(student_id,onboarding_version) VALUES($1,1)", [students[key]]);
   }
   await db.query("INSERT INTO placement.officers(user_id) VALUES($1),($2)", [users.officer, users.officer2]);
 

@@ -2,6 +2,7 @@
 // work for the restricted runtime role even before it is granted schema usage.
 // When a new migration adds something the API depends on, add it here.
 const required = [
+  ["function", "student", "clear_platform_data", null],
   ["table", "student", "profiles", null],
   ["table", "student", "registration_drafts", null],
   ["function", "student", "is_officer", null],
@@ -23,6 +24,33 @@ const required = [
   ["table", "placement", "drive_intakes", null],
   ["column", "student", "interview_answers", "coaching"],
   ["column", "student", "interviews", "context"],
+  // 202610220001_student_intelligence.sql
+  ["table", "student", "skill_profiles", null],
+  ["column", "student", "skill_profiles", "visibility_saved_at"],
+  ["table", "student", "platform_accounts", null],
+  ["table", "student", "platform_credentials", null],
+  ["table", "student", "platform_snapshots", null],
+  ["table", "student", "platform_metrics", null],
+  ["table", "student", "github_repositories", null],
+  ["table", "student", "featured_projects", null],
+  ["table", "student", "profile_summaries", null],
+  ["column", "student", "profile_summaries", "sources"],
+  ["table", "student", "profile_summary_attempts", null],
+  ["table", "student", "sync_jobs", null],
+  ["table", "student", "oauth_states", null],
+  ["function", "student", "sync_worker", null],
+  ["function", "student", "credential_access", null],
+  ["function", "student", "onboarding_current_version", null],
+  ["function", "student", "skill_status", null],
+  ["function", "student", "my_ranking", null],
+  ["function", "erp", "cgpa_ranks", null],
+  ["function", "placement", "ranked_students", null],
+  ["function", "placement", "category_cards", null],
+  ["function", "placement", "overview_charts", null],
+  ["function", "placement", "student_core", null],
+  ["function", "placement", "skill_profile", null],
+  ["function", "placement", "lookup_students", null],
+  ["function", "placement", "skill_students", null],
 ];
 
 const missingSql = `
