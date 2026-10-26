@@ -1,0 +1,302 @@
+[
+  {
+    "id": "software-development-engineer",
+    "name": "Software Development Engineer",
+    "family": "Software Engineering"
+  },
+  {
+    "id": "backend-developer",
+    "name": "Backend Developer",
+    "family": "Software Engineering"
+  },
+  {
+    "id": "frontend-developer",
+    "name": "Frontend Developer",
+    "family": "Software Engineering"
+  },
+  {
+    "id": "full-stack-developer",
+    "name": "Full-Stack Developer",
+    "family": "Software Engineering"
+  },
+  {
+    "id": "mobile-developer",
+    "name": "Mobile Developer",
+    "family": "Software Engineering"
+  },
+  {
+    "id": "qa-automation-engineer",
+    "name": "QA Automation Engineer",
+    "family": "Software Engineering"
+  },
+  {
+    "id": "software-test-engineer",
+    "name": "Software Test Engineer",
+    "family": "Software Engineering"
+  },
+  {
+    "id": "systems-engineer",
+    "name": "Systems Engineer",
+    "family": "Software Engineering"
+  },
+  {
+    "id": "machine-learning-engineer",
+    "name": "Machine Learning Engineer",
+    "family": "AI and Data"
+  },
+  {
+    "id": "ai-engineer",
+    "name": "AI Engineer",
+    "family": "AI and Data"
+  },
+  {
+    "id": "llm-engineer",
+    "name": "LLM Engineer",
+    "family": "AI and Data"
+  },
+  {
+    "id": "data-scientist",
+    "name": "Data Scientist",
+    "family": "AI and Data"
+  },
+  {
+    "id": "data-analyst",
+    "name": "Data Analyst",
+    "family": "AI and Data"
+  },
+  {
+    "id": "data-engineer",
+    "name": "Data Engineer",
+    "family": "AI and Data"
+  },
+  {
+    "id": "bi-developer",
+    "name": "BI Developer",
+    "family": "AI and Data"
+  },
+  {
+    "id": "mlops-engineer",
+    "name": "MLOps Engineer",
+    "family": "AI and Data"
+  },
+  {
+    "id": "devops-engineer",
+    "name": "DevOps Engineer",
+    "family": "Infrastructure and Security"
+  },
+  {
+    "id": "site-reliability-engineer",
+    "name": "Site Reliability Engineer",
+    "family": "Infrastructure and Security"
+  },
+  {
+    "id": "cloud-engineer",
+    "name": "Cloud Engineer",
+    "family": "Infrastructure and Security"
+  },
+  {
+    "id": "cybersecurity-analyst",
+    "name": "Cybersecurity Analyst",
+    "family": "Infrastructure and Security"
+  },
+  {
+    "id": "security-engineer",
+    "name": "Security Engineer",
+    "family": "Infrastructure and Security"
+  },
+  {
+    "id": "penetration-testing-trainee",
+    "name": "Penetration Testing Trainee",
+    "family": "Infrastructure and Security"
+  },
+  {
+    "id": "network-engineer",
+    "name": "Network Engineer",
+    "family": "Infrastructure and Security"
+  },
+  {
+    "id": "mechanical-design-engineer",
+    "name": "Mechanical Design Engineer",
+    "family": "Core Engineering"
+  },
+  {
+    "id": "cae-engineer",
+    "name": "CAE Engineer",
+    "family": "Core Engineering"
+  },
+  {
+    "id": "manufacturing-engineer",
+    "name": "Manufacturing Engineer",
+    "family": "Core Engineering"
+  },
+  {
+    "id": "automotive-engineer",
+    "name": "Automotive Engineer",
+    "family": "Core Engineering"
+  },
+  {
+    "id": "ev-systems-engineer",
+    "name": "EV Systems Engineer",
+    "family": "Core Engineering"
+  },
+  {
+    "id": "robotics-engineer",
+    "name": "Robotics Engineer",
+    "family": "Core Engineering"
+  },
+  {
+    "id": "electronics-design-engineer",
+    "name": "Electronics Design Engineer",
+    "family": "Core Engineering"
+  },
+  {
+    "id": "embedded-software-engineer",
+    "name": "Embedded Software Engineer",
+    "family": "Core Engineering"
+  },
+  {
+    "id": "vlsi-design-engineer",
+    "name": "VLSI Design Engineer",
+    "family": "Core Engineering"
+  },
+  {
+    "id": "fpga-engineer",
+    "name": "FPGA Engineer",
+    "family": "Core Engineering"
+  },
+  {
+    "id": "power-systems-engineer",
+    "name": "Power Systems Engineer",
+    "family": "Core Engineering"
+  },
+  {
+    "id": "iot-engineer",
+    "name": "IoT Engineer",
+    "family": "Core Engineering"
+  },
+  {
+    "id": "structural-engineer",
+    "name": "Structural Engineer",
+    "family": "Core Engineering"
+  },
+  {
+    "id": "construction-planning-engineer",
+    "name": "Construction Planning Engineer",
+    "family": "Core Engineering"
+  },
+  {
+    "id": "environmental-engineer",
+    "name": "Environmental Engineer",
+    "family": "Core Engineering"
+  },
+  {
+    "id": "chemical-process-engineer",
+    "name": "Chemical Process Engineer",
+    "family": "Core Engineering"
+  },
+  {
+    "id": "biotechnology-research-associate",
+    "name": "Biotechnology Research Associate",
+    "family": "Core Engineering"
+  },
+  {
+    "id": "research-assistant",
+    "name": "Research Assistant",
+    "family": "Core Engineering"
+  },
+  {
+    "id": "digital-marketing-executive",
+    "name": "Digital Marketing Executive",
+    "family": "Marketing and Sales"
+  },
+  {
+    "id": "performance-marketing-analyst",
+    "name": "Performance Marketing Analyst",
+    "family": "Marketing and Sales"
+  },
+  {
+    "id": "marketing-analyst",
+    "name": "Marketing Analyst",
+    "family": "Marketing and Sales"
+  },
+  {
+    "id": "content-marketing-specialist",
+    "name": "Content Marketing Specialist",
+    "family": "Marketing and Sales"
+  },
+  {
+    "id": "social-media-marketing-executive",
+    "name": "Social Media Marketing Executive",
+    "family": "Marketing and Sales"
+  },
+  {
+    "id": "sales-development-representative",
+    "name": "Sales Development Representative",
+    "family": "Marketing and Sales"
+  },
+  {
+    "id": "business-development-associate",
+    "name": "Business Development Associate",
+    "family": "Marketing and Sales"
+  },
+  {
+    "id": "account-executive-trainee",
+    "name": "Account Executive Trainee",
+    "family": "Marketing and Sales"
+  },
+  {
+    "id": "customer-success-associate",
+    "name": "Customer Success Associate",
+    "family": "Marketing and Sales"
+  },
+  {
+    "id": "business-analyst",
+    "name": "Business Analyst",
+    "family": "Business and Management"
+  },
+  {
+    "id": "product-management-associate",
+    "name": "Product Management Associate",
+    "family": "Business and Management"
+  },
+  {
+    "id": "operations-analyst",
+    "name": "Operations Analyst",
+    "family": "Business and Management"
+  },
+  {
+    "id": "supply-chain-analyst",
+    "name": "Supply Chain Analyst",
+    "family": "Business and Management"
+  },
+  {
+    "id": "financial-analyst",
+    "name": "Financial Analyst",
+    "family": "Business and Management"
+  },
+  {
+    "id": "hr-associate",
+    "name": "HR Associate",
+    "family": "Business and Management"
+  },
+  {
+    "id": "management-trainee",
+    "name": "Management Trainee",
+    "family": "Business and Management"
+  },
+  {
+    "id": "ui-ux-designer",
+    "name": "UI/UX Designer",
+    "family": "Business and Management"
+  },
+  {
+    "id": "technical-writer",
+    "name": "Technical Writer",
+    "family": "Business and Management"
+  },
+  {
+    "id": "entrepreneurship-track",
+    "name": "Entrepreneurship Track",
+    "family": "Business and Management"
+  }
+]

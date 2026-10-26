@@ -117,7 +117,7 @@ export function createStudentAI(pool, env, override, { request = fetch, logger }
       if (override) output = await override({ kind, task, input });
       else {
         const planning = kind === "interview.generate";
-        const interactive = kind.startsWith("chat.") || ["interview.evaluate", "interview.coach"].includes(kind);
+        const interactive = kind.startsWith("chat.") || ["interview.evaluate", "interview.coach", "competency.extract"].includes(kind);
         const model = env.STUDENT_AI_MODEL || env.OPENROUTER_MODEL || "deepseek/deepseek-v4.1-flash";
         phase = "provider";
         const response = await request(

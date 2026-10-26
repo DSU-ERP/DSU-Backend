@@ -82,7 +82,9 @@ const schema = z
     SYNC_WORKER: blank(z.enum(["on", "off"]).default("on")),
     SYNC_WORKER_CONCURRENCY: blank(z.coerce.number().int().min(1).max(4).default(2)),
     SYNC_INTERVAL_HOURS: blank(z.coerce.number().int().min(1).max(168).default(24)),
-    DSU_ENVIRONMENT: blank(z.enum(["development", "staging", "production"]).optional()),
+    DSU_ENVIRONMENT: blank(z.enum(["development", "staging", "production", "testing"]).optional()),
+    COMPETENCY_TESTING: z.enum(["true", "false"]).default("false"),
+    COMPETENCY_WORKER: z.enum(["on", "off"]).default("on"),
     LOG_LEVEL: z
       .enum(["debug", "info", "warn", "error", "fatal", "silent"])
       .default("info"),

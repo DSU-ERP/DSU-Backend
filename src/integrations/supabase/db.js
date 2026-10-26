@@ -29,7 +29,7 @@ export function createPool(url, env = process.env) {
     connectionTimeoutMillis: Number(env.DATABASE_CONNECTION_TIMEOUT_MS || 5000),
     idleTimeoutMillis: 30000,
     statement_timeout: Number(env.DATABASE_STATEMENT_TIMEOUT_MS || 15000),
-    query_timeout: 20000,
+    query_timeout: Number(env.DATABASE_QUERY_TIMEOUT_MS || 20000),
     application_name: "dsu-backend",
   });
   pool.on("error", (error) =>

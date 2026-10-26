@@ -1,0 +1,890 @@
+[
+  {
+    "family": "GEN",
+    "name": "Relevant Academic Knowledge",
+    "description": "Demonstrated relevant academic knowledge supported by attributable evidence.",
+    "code": "GEN-01"
+  },
+  {
+    "family": "GEN",
+    "name": "Foundational Problem Solving",
+    "description": "Demonstrated foundational problem solving supported by attributable evidence.",
+    "code": "GEN-02"
+  },
+  {
+    "family": "GEN",
+    "name": "Domain Knowledge",
+    "description": "Demonstrated domain knowledge supported by attributable evidence.",
+    "code": "GEN-03"
+  },
+  {
+    "family": "GEN",
+    "name": "Practical Project Execution",
+    "description": "Demonstrated practical project execution supported by attributable evidence.",
+    "code": "GEN-04"
+  },
+  {
+    "family": "GEN",
+    "name": "Project Ownership",
+    "description": "Demonstrated project ownership supported by attributable evidence.",
+    "code": "GEN-05"
+  },
+  {
+    "family": "GEN",
+    "name": "Technical Documentation",
+    "description": "Demonstrated technical documentation supported by attributable evidence.",
+    "code": "GEN-06"
+  },
+  {
+    "family": "GEN",
+    "name": "Communication",
+    "description": "Demonstrated communication supported by attributable evidence.",
+    "code": "GEN-07"
+  },
+  {
+    "family": "GEN",
+    "name": "Teamwork",
+    "description": "Demonstrated teamwork supported by attributable evidence.",
+    "code": "GEN-08"
+  },
+  {
+    "family": "GEN",
+    "name": "Analytical Reasoning",
+    "description": "Demonstrated analytical reasoning supported by attributable evidence.",
+    "code": "GEN-09"
+  },
+  {
+    "family": "GEN",
+    "name": "Project Planning",
+    "description": "Demonstrated project planning supported by attributable evidence.",
+    "code": "GEN-10"
+  },
+  {
+    "family": "GEN",
+    "name": "Deliverable Quality",
+    "description": "Demonstrated deliverable quality supported by attributable evidence.",
+    "code": "GEN-11"
+  },
+  {
+    "family": "GEN",
+    "name": "Research Ability",
+    "description": "Demonstrated research ability supported by attributable evidence.",
+    "code": "GEN-12"
+  },
+  {
+    "family": "GEN",
+    "name": "Relevant Internship Experience",
+    "description": "Demonstrated relevant internship experience supported by attributable evidence.",
+    "code": "GEN-13"
+  },
+  {
+    "family": "GEN",
+    "name": "Verified Certifications",
+    "description": "Demonstrated verified certifications supported by attributable evidence.",
+    "code": "GEN-14"
+  },
+  {
+    "family": "GEN",
+    "name": "Applied Tool Proficiency",
+    "description": "Demonstrated applied tool proficiency supported by attributable evidence.",
+    "code": "GEN-15"
+  },
+  {
+    "family": "GEN",
+    "name": "Professional Presentation",
+    "description": "Demonstrated professional presentation supported by attributable evidence.",
+    "code": "GEN-16"
+  },
+  {
+    "family": "GEN",
+    "name": "Learning Progression",
+    "description": "Demonstrated learning progression supported by attributable evidence.",
+    "code": "GEN-17"
+  },
+  {
+    "family": "GEN",
+    "name": "Responsible Professional Practice",
+    "description": "Demonstrated responsible professional practice supported by attributable evidence.",
+    "code": "GEN-18"
+  },
+  {
+    "family": "GEN",
+    "name": "Leadership",
+    "description": "Demonstrated leadership supported by attributable evidence.",
+    "code": "GEN-19"
+  },
+  {
+    "family": "GEN",
+    "name": "Structured Interview Performance",
+    "description": "Demonstrated structured interview performance supported by attributable evidence.",
+    "code": "GEN-20"
+  },
+  {
+    "family": "SW",
+    "name": "Programming Proficiency",
+    "description": "Demonstrated programming proficiency supported by attributable evidence.",
+    "code": "SW-01"
+  },
+  {
+    "family": "SW",
+    "name": "Data Structures and Algorithms",
+    "description": "Demonstrated data structures and algorithms supported by attributable evidence.",
+    "code": "SW-02"
+  },
+  {
+    "family": "SW",
+    "name": "Code Quality",
+    "description": "Demonstrated code quality supported by attributable evidence.",
+    "code": "SW-03"
+  },
+  {
+    "family": "SW",
+    "name": "Software Testing",
+    "description": "Demonstrated software testing supported by attributable evidence.",
+    "code": "SW-04"
+  },
+  {
+    "family": "SW",
+    "name": "System Design",
+    "description": "Demonstrated system design supported by attributable evidence.",
+    "code": "SW-05"
+  },
+  {
+    "family": "SW",
+    "name": "API Development",
+    "description": "Demonstrated api development supported by attributable evidence.",
+    "code": "SW-06"
+  },
+  {
+    "family": "SW",
+    "name": "Database Engineering",
+    "description": "Demonstrated database engineering supported by attributable evidence.",
+    "code": "SW-07"
+  },
+  {
+    "family": "SW",
+    "name": "Git and Version Control",
+    "description": "Demonstrated git and version control supported by attributable evidence.",
+    "code": "SW-08"
+  },
+  {
+    "family": "SW",
+    "name": "Open-Source Contributions",
+    "description": "Demonstrated open-source contributions supported by attributable evidence.",
+    "code": "SW-09"
+  },
+  {
+    "family": "SW",
+    "name": "Application Deployment",
+    "description": "Demonstrated application deployment supported by attributable evidence.",
+    "code": "SW-10"
+  },
+  {
+    "family": "SW",
+    "name": "Debugging",
+    "description": "Demonstrated debugging supported by attributable evidence.",
+    "code": "SW-11"
+  },
+  {
+    "family": "SW",
+    "name": "Performance Optimization",
+    "description": "Demonstrated performance optimization supported by attributable evidence.",
+    "code": "SW-12"
+  },
+  {
+    "family": "SW",
+    "name": "Frontend Engineering",
+    "description": "Demonstrated frontend engineering supported by attributable evidence.",
+    "code": "SW-13"
+  },
+  {
+    "family": "SW",
+    "name": "Mobile Development",
+    "description": "Demonstrated mobile development supported by attributable evidence.",
+    "code": "SW-14"
+  },
+  {
+    "family": "SW",
+    "name": "Secure Coding",
+    "description": "Demonstrated secure coding supported by attributable evidence.",
+    "code": "SW-15"
+  },
+  {
+    "family": "SW",
+    "name": "Engineering Collaboration",
+    "description": "Demonstrated engineering collaboration supported by attributable evidence.",
+    "code": "SW-16"
+  },
+  {
+    "family": "AI",
+    "name": "Python Proficiency",
+    "description": "Demonstrated python proficiency supported by attributable evidence.",
+    "code": "AI-01"
+  },
+  {
+    "family": "AI",
+    "name": "Mathematics for Machine Learning",
+    "description": "Demonstrated mathematics for machine learning supported by attributable evidence.",
+    "code": "AI-02"
+  },
+  {
+    "family": "AI",
+    "name": "Data Preprocessing",
+    "description": "Demonstrated data preprocessing supported by attributable evidence.",
+    "code": "AI-03"
+  },
+  {
+    "family": "AI",
+    "name": "Model Development",
+    "description": "Demonstrated model development supported by attributable evidence.",
+    "code": "AI-04"
+  },
+  {
+    "family": "AI",
+    "name": "Model Evaluation",
+    "description": "Demonstrated model evaluation supported by attributable evidence.",
+    "code": "AI-05"
+  },
+  {
+    "family": "AI",
+    "name": "Deep Learning",
+    "description": "Demonstrated deep learning supported by attributable evidence.",
+    "code": "AI-06"
+  },
+  {
+    "family": "AI",
+    "name": "NLP and LLM Engineering",
+    "description": "Demonstrated nlp and llm engineering supported by attributable evidence.",
+    "code": "AI-07"
+  },
+  {
+    "family": "AI",
+    "name": "Computer Vision",
+    "description": "Demonstrated computer vision supported by attributable evidence.",
+    "code": "AI-08"
+  },
+  {
+    "family": "AI",
+    "name": "MLOps",
+    "description": "Demonstrated mlops supported by attributable evidence.",
+    "code": "AI-09"
+  },
+  {
+    "family": "AI",
+    "name": "Model Optimization",
+    "description": "Demonstrated model optimization supported by attributable evidence.",
+    "code": "AI-10"
+  },
+  {
+    "family": "AI",
+    "name": "Data Visualization",
+    "description": "Demonstrated data visualization supported by attributable evidence.",
+    "code": "AI-11"
+  },
+  {
+    "family": "AI",
+    "name": "SQL and Data Modeling",
+    "description": "Demonstrated sql and data modeling supported by attributable evidence.",
+    "code": "AI-12"
+  },
+  {
+    "family": "AI",
+    "name": "Experimentation",
+    "description": "Demonstrated experimentation supported by attributable evidence.",
+    "code": "AI-13"
+  },
+  {
+    "family": "AI",
+    "name": "Responsible AI",
+    "description": "Demonstrated responsible ai supported by attributable evidence.",
+    "code": "AI-14"
+  },
+  {
+    "family": "INF",
+    "name": "Linux Administration",
+    "description": "Demonstrated linux administration supported by attributable evidence.",
+    "code": "INF-01"
+  },
+  {
+    "family": "INF",
+    "name": "Networking",
+    "description": "Demonstrated networking supported by attributable evidence.",
+    "code": "INF-02"
+  },
+  {
+    "family": "INF",
+    "name": "Cloud Infrastructure",
+    "description": "Demonstrated cloud infrastructure supported by attributable evidence.",
+    "code": "INF-03"
+  },
+  {
+    "family": "INF",
+    "name": "Containers",
+    "description": "Demonstrated containers supported by attributable evidence.",
+    "code": "INF-04"
+  },
+  {
+    "family": "INF",
+    "name": "Kubernetes",
+    "description": "Demonstrated kubernetes supported by attributable evidence.",
+    "code": "INF-05"
+  },
+  {
+    "family": "INF",
+    "name": "Infrastructure as Code",
+    "description": "Demonstrated infrastructure as code supported by attributable evidence.",
+    "code": "INF-06"
+  },
+  {
+    "family": "INF",
+    "name": "CI/CD",
+    "description": "Demonstrated ci/cd supported by attributable evidence.",
+    "code": "INF-07"
+  },
+  {
+    "family": "INF",
+    "name": "Reliability Engineering",
+    "description": "Demonstrated reliability engineering supported by attributable evidence.",
+    "code": "INF-08"
+  },
+  {
+    "family": "INF",
+    "name": "Observability",
+    "description": "Demonstrated observability supported by attributable evidence.",
+    "code": "INF-09"
+  },
+  {
+    "family": "INF",
+    "name": "Security Fundamentals",
+    "description": "Demonstrated security fundamentals supported by attributable evidence.",
+    "code": "INF-10"
+  },
+  {
+    "family": "INF",
+    "name": "Application Security",
+    "description": "Demonstrated application security supported by attributable evidence.",
+    "code": "INF-11"
+  },
+  {
+    "family": "INF",
+    "name": "Incident Investigation",
+    "description": "Demonstrated incident investigation supported by attributable evidence.",
+    "code": "INF-12"
+  },
+  {
+    "family": "INF",
+    "name": "Threat Modeling",
+    "description": "Demonstrated threat modeling supported by attributable evidence.",
+    "code": "INF-13"
+  },
+  {
+    "family": "INF",
+    "name": "Authorized Security Lab Performance",
+    "description": "Demonstrated authorized security lab performance supported by attributable evidence.",
+    "code": "INF-14"
+  },
+  {
+    "family": "MEC",
+    "name": "CAD Modeling",
+    "description": "Demonstrated cad modeling supported by attributable evidence.",
+    "code": "MEC-01"
+  },
+  {
+    "family": "MEC",
+    "name": "Engineering Drawings and GD&T",
+    "description": "Demonstrated engineering drawings and gd&t supported by attributable evidence.",
+    "code": "MEC-02"
+  },
+  {
+    "family": "MEC",
+    "name": "Finite Element Analysis",
+    "description": "Demonstrated finite element analysis supported by attributable evidence.",
+    "code": "MEC-03"
+  },
+  {
+    "family": "MEC",
+    "name": "CFD and Thermal Analysis",
+    "description": "Demonstrated cfd and thermal analysis supported by attributable evidence.",
+    "code": "MEC-04"
+  },
+  {
+    "family": "MEC",
+    "name": "Manufacturing Knowledge",
+    "description": "Demonstrated manufacturing knowledge supported by attributable evidence.",
+    "code": "MEC-05"
+  },
+  {
+    "family": "MEC",
+    "name": "Design for Manufacturability",
+    "description": "Demonstrated design for manufacturability supported by attributable evidence.",
+    "code": "MEC-06"
+  },
+  {
+    "family": "MEC",
+    "name": "Materials Engineering",
+    "description": "Demonstrated materials engineering supported by attributable evidence.",
+    "code": "MEC-07"
+  },
+  {
+    "family": "MEC",
+    "name": "Product Prototyping",
+    "description": "Demonstrated product prototyping supported by attributable evidence.",
+    "code": "MEC-08"
+  },
+  {
+    "family": "MEC",
+    "name": "Automotive Systems",
+    "description": "Demonstrated automotive systems supported by attributable evidence.",
+    "code": "MEC-09"
+  },
+  {
+    "family": "MEC",
+    "name": "Quality Engineering",
+    "description": "Demonstrated quality engineering supported by attributable evidence.",
+    "code": "MEC-10"
+  },
+  {
+    "family": "ECE",
+    "name": "Circuit Analysis",
+    "description": "Demonstrated circuit analysis supported by attributable evidence.",
+    "code": "ECE-01"
+  },
+  {
+    "family": "ECE",
+    "name": "PCB Design",
+    "description": "Demonstrated pcb design supported by attributable evidence.",
+    "code": "ECE-02"
+  },
+  {
+    "family": "ECE",
+    "name": "Embedded Programming",
+    "description": "Demonstrated embedded programming supported by attributable evidence.",
+    "code": "ECE-03"
+  },
+  {
+    "family": "ECE",
+    "name": "Microcontrollers",
+    "description": "Demonstrated microcontrollers supported by attributable evidence.",
+    "code": "ECE-04"
+  },
+  {
+    "family": "ECE",
+    "name": "RTOS",
+    "description": "Demonstrated rtos supported by attributable evidence.",
+    "code": "ECE-05"
+  },
+  {
+    "family": "ECE",
+    "name": "Digital Electronics",
+    "description": "Demonstrated digital electronics supported by attributable evidence.",
+    "code": "ECE-06"
+  },
+  {
+    "family": "ECE",
+    "name": "VLSI Design",
+    "description": "Demonstrated vlsi design supported by attributable evidence.",
+    "code": "ECE-07"
+  },
+  {
+    "family": "ECE",
+    "name": "FPGA Development",
+    "description": "Demonstrated fpga development supported by attributable evidence.",
+    "code": "ECE-08"
+  },
+  {
+    "family": "ECE",
+    "name": "Signal Processing",
+    "description": "Demonstrated signal processing supported by attributable evidence.",
+    "code": "ECE-09"
+  },
+  {
+    "family": "ECE",
+    "name": "Power Electronics",
+    "description": "Demonstrated power electronics supported by attributable evidence.",
+    "code": "ECE-10"
+  },
+  {
+    "family": "ECE",
+    "name": "IoT Systems",
+    "description": "Demonstrated iot systems supported by attributable evidence.",
+    "code": "ECE-11"
+  },
+  {
+    "family": "ECE",
+    "name": "Hardware Debugging",
+    "description": "Demonstrated hardware debugging supported by attributable evidence.",
+    "code": "ECE-12"
+  },
+  {
+    "family": "CIV",
+    "name": "Structural Analysis",
+    "description": "Demonstrated structural analysis supported by attributable evidence.",
+    "code": "CIV-01"
+  },
+  {
+    "family": "CIV",
+    "name": "CAD and BIM",
+    "description": "Demonstrated cad and bim supported by attributable evidence.",
+    "code": "CIV-02"
+  },
+  {
+    "family": "CIV",
+    "name": "Surveying",
+    "description": "Demonstrated surveying supported by attributable evidence.",
+    "code": "CIV-03"
+  },
+  {
+    "family": "CIV",
+    "name": "Structural Design",
+    "description": "Demonstrated structural design supported by attributable evidence.",
+    "code": "CIV-04"
+  },
+  {
+    "family": "CIV",
+    "name": "Construction Planning",
+    "description": "Demonstrated construction planning supported by attributable evidence.",
+    "code": "CIV-05"
+  },
+  {
+    "family": "CIV",
+    "name": "Quantity Estimation",
+    "description": "Demonstrated quantity estimation supported by attributable evidence.",
+    "code": "CIV-06"
+  },
+  {
+    "family": "CIV",
+    "name": "Geotechnical Engineering",
+    "description": "Demonstrated geotechnical engineering supported by attributable evidence.",
+    "code": "CIV-07"
+  },
+  {
+    "family": "CIV",
+    "name": "Water and Environmental Engineering",
+    "description": "Demonstrated water and environmental engineering supported by attributable evidence.",
+    "code": "CIV-08"
+  },
+  {
+    "family": "CIV",
+    "name": "Construction Safety",
+    "description": "Demonstrated construction safety supported by attributable evidence.",
+    "code": "CIV-09"
+  },
+  {
+    "family": "CIV",
+    "name": "Engineering Documentation",
+    "description": "Demonstrated engineering documentation supported by attributable evidence.",
+    "code": "CIV-10"
+  },
+  {
+    "family": "CORE",
+    "name": "Process Modeling",
+    "description": "Demonstrated process modeling supported by attributable evidence.",
+    "code": "CORE-01"
+  },
+  {
+    "family": "CORE",
+    "name": "Process Safety",
+    "description": "Demonstrated process safety supported by attributable evidence.",
+    "code": "CORE-02"
+  },
+  {
+    "family": "CORE",
+    "name": "Laboratory Methods",
+    "description": "Demonstrated laboratory methods supported by attributable evidence.",
+    "code": "CORE-03"
+  },
+  {
+    "family": "CORE",
+    "name": "Experimental Design",
+    "description": "Demonstrated experimental design supported by attributable evidence.",
+    "code": "CORE-04"
+  },
+  {
+    "family": "CORE",
+    "name": "Instrumentation",
+    "description": "Demonstrated instrumentation supported by attributable evidence.",
+    "code": "CORE-05"
+  },
+  {
+    "family": "CORE",
+    "name": "Quality Control",
+    "description": "Demonstrated quality control supported by attributable evidence.",
+    "code": "CORE-06"
+  },
+  {
+    "family": "CORE",
+    "name": "Research Reproducibility",
+    "description": "Demonstrated research reproducibility supported by attributable evidence.",
+    "code": "CORE-07"
+  },
+  {
+    "family": "CORE",
+    "name": "Process Optimization",
+    "description": "Demonstrated process optimization supported by attributable evidence.",
+    "code": "CORE-08"
+  },
+  {
+    "family": "CORE",
+    "name": "Technical Compliance",
+    "description": "Demonstrated technical compliance supported by attributable evidence.",
+    "code": "CORE-09"
+  },
+  {
+    "family": "CORE",
+    "name": "Scientific Communication",
+    "description": "Demonstrated scientific communication supported by attributable evidence.",
+    "code": "CORE-10"
+  },
+  {
+    "family": "MKT",
+    "name": "Market Research",
+    "description": "Demonstrated market research supported by attributable evidence.",
+    "code": "MKT-01"
+  },
+  {
+    "family": "MKT",
+    "name": "Customer Segmentation",
+    "description": "Demonstrated customer segmentation supported by attributable evidence.",
+    "code": "MKT-02"
+  },
+  {
+    "family": "MKT",
+    "name": "Campaign Planning",
+    "description": "Demonstrated campaign planning supported by attributable evidence.",
+    "code": "MKT-03"
+  },
+  {
+    "family": "MKT",
+    "name": "Copywriting",
+    "description": "Demonstrated copywriting supported by attributable evidence.",
+    "code": "MKT-04"
+  },
+  {
+    "family": "MKT",
+    "name": "Content Strategy",
+    "description": "Demonstrated content strategy supported by attributable evidence.",
+    "code": "MKT-05"
+  },
+  {
+    "family": "MKT",
+    "name": "SEO Proficiency",
+    "description": "Demonstrated seo proficiency supported by attributable evidence.",
+    "code": "MKT-06"
+  },
+  {
+    "family": "MKT",
+    "name": "Paid Advertising",
+    "description": "Demonstrated paid advertising supported by attributable evidence.",
+    "code": "MKT-07"
+  },
+  {
+    "family": "MKT",
+    "name": "Marketing Analytics",
+    "description": "Demonstrated marketing analytics supported by attributable evidence.",
+    "code": "MKT-08"
+  },
+  {
+    "family": "MKT",
+    "name": "Conversion Optimization",
+    "description": "Demonstrated conversion optimization supported by attributable evidence.",
+    "code": "MKT-09"
+  },
+  {
+    "family": "MKT",
+    "name": "Brand Strategy",
+    "description": "Demonstrated brand strategy supported by attributable evidence.",
+    "code": "MKT-10"
+  },
+  {
+    "family": "MKT",
+    "name": "Marketing Automation",
+    "description": "Demonstrated marketing automation supported by attributable evidence.",
+    "code": "MKT-11"
+  },
+  {
+    "family": "MKT",
+    "name": "Creative Execution",
+    "description": "Demonstrated creative execution supported by attributable evidence.",
+    "code": "MKT-12"
+  },
+  {
+    "family": "SAL",
+    "name": "Product Understanding",
+    "description": "Demonstrated product understanding supported by attributable evidence.",
+    "code": "SAL-01"
+  },
+  {
+    "family": "SAL",
+    "name": "Customer Discovery",
+    "description": "Demonstrated customer discovery supported by attributable evidence.",
+    "code": "SAL-02"
+  },
+  {
+    "family": "SAL",
+    "name": "Prospect Research",
+    "description": "Demonstrated prospect research supported by attributable evidence.",
+    "code": "SAL-03"
+  },
+  {
+    "family": "SAL",
+    "name": "Lead Qualification",
+    "description": "Demonstrated lead qualification supported by attributable evidence.",
+    "code": "SAL-04"
+  },
+  {
+    "family": "SAL",
+    "name": "Sales Pitch",
+    "description": "Demonstrated sales pitch supported by attributable evidence.",
+    "code": "SAL-05"
+  },
+  {
+    "family": "SAL",
+    "name": "Objection Handling",
+    "description": "Demonstrated objection handling supported by attributable evidence.",
+    "code": "SAL-06"
+  },
+  {
+    "family": "SAL",
+    "name": "CRM Proficiency",
+    "description": "Demonstrated crm proficiency supported by attributable evidence.",
+    "code": "SAL-07"
+  },
+  {
+    "family": "SAL",
+    "name": "Sales Pipeline Management",
+    "description": "Demonstrated sales pipeline management supported by attributable evidence.",
+    "code": "SAL-08"
+  },
+  {
+    "family": "SAL",
+    "name": "Negotiation",
+    "description": "Demonstrated negotiation supported by attributable evidence.",
+    "code": "SAL-09"
+  },
+  {
+    "family": "SAL",
+    "name": "Business Writing",
+    "description": "Demonstrated business writing supported by attributable evidence.",
+    "code": "SAL-10"
+  },
+  {
+    "family": "SAL",
+    "name": "Verified Commercial Outcomes",
+    "description": "Demonstrated verified commercial outcomes supported by attributable evidence.",
+    "code": "SAL-11"
+  },
+  {
+    "family": "SAL",
+    "name": "Account Management",
+    "description": "Demonstrated account management supported by attributable evidence.",
+    "code": "SAL-12"
+  },
+  {
+    "family": "BUS",
+    "name": "Financial Modeling",
+    "description": "Demonstrated financial modeling supported by attributable evidence.",
+    "code": "BUS-01"
+  },
+  {
+    "family": "BUS",
+    "name": "Accounting Proficiency",
+    "description": "Demonstrated accounting proficiency supported by attributable evidence.",
+    "code": "BUS-02"
+  },
+  {
+    "family": "BUS",
+    "name": "Financial Analysis",
+    "description": "Demonstrated financial analysis supported by attributable evidence.",
+    "code": "BUS-03"
+  },
+  {
+    "family": "BUS",
+    "name": "Business Analytics",
+    "description": "Demonstrated business analytics supported by attributable evidence.",
+    "code": "BUS-04"
+  },
+  {
+    "family": "BUS",
+    "name": "Process Improvement",
+    "description": "Demonstrated process improvement supported by attributable evidence.",
+    "code": "BUS-05"
+  },
+  {
+    "family": "BUS",
+    "name": "Supply-Chain Planning",
+    "description": "Demonstrated supply-chain planning supported by attributable evidence.",
+    "code": "BUS-06"
+  },
+  {
+    "family": "BUS",
+    "name": "Project Management",
+    "description": "Demonstrated project management supported by attributable evidence.",
+    "code": "BUS-07"
+  },
+  {
+    "family": "BUS",
+    "name": "Business Case Analysis",
+    "description": "Demonstrated business case analysis supported by attributable evidence.",
+    "code": "BUS-08"
+  },
+  {
+    "family": "BUS",
+    "name": "Presentation Ability",
+    "description": "Demonstrated presentation ability supported by attributable evidence.",
+    "code": "BUS-09"
+  },
+  {
+    "family": "BUS",
+    "name": "HR Operations",
+    "description": "Demonstrated hr operations supported by attributable evidence.",
+    "code": "BUS-10"
+  },
+  {
+    "family": "BUS",
+    "name": "Interview and Assessment Design",
+    "description": "Demonstrated interview and assessment design supported by attributable evidence.",
+    "code": "BUS-11"
+  },
+  {
+    "family": "BUS",
+    "name": "Workforce Planning",
+    "description": "Demonstrated workforce planning supported by attributable evidence.",
+    "code": "BUS-12"
+  },
+  {
+    "family": "BUS",
+    "name": "Product Discovery",
+    "description": "Demonstrated product discovery supported by attributable evidence.",
+    "code": "BUS-13"
+  },
+  {
+    "family": "BUS",
+    "name": "Product Strategy",
+    "description": "Demonstrated product strategy supported by attributable evidence.",
+    "code": "BUS-14"
+  },
+  {
+    "family": "BUS",
+    "name": "Customer Success",
+    "description": "Demonstrated customer success supported by attributable evidence.",
+    "code": "BUS-15"
+  },
+  {
+    "family": "BUS",
+    "name": "Technical Writing",
+    "description": "Demonstrated technical writing supported by attributable evidence.",
+    "code": "BUS-16"
+  },
+  {
+    "family": "BUS",
+    "name": "Entrepreneurship",
+    "description": "Demonstrated entrepreneurship supported by attributable evidence.",
+    "code": "BUS-17"
+  },
+  {
+    "family": "BUS",
+    "name": "Business Ethics",
+    "description": "Demonstrated business ethics supported by attributable evidence.",
+    "code": "BUS-18"
+  }
+]

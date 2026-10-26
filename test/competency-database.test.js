@@ -1,0 +1,104 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
+import {testDatabase} from './helpers/database.js';
+import {withActor} from '../src/integrations/supabase/db.js';
+import {seedCatalogs,seedFixtures,stableId} from '../src/modules/competency/data/seed.js';
+import {buildApp} from '../src/app.js';
+import {processOneJob} from '../src/modules/competency/worker.js';
+import {compactCompetencies} from '../src/modules/competency/friday.js';
+import {profile as competencyProfile,template as loadTemplate,recalculateStudent} from '../src/modules/competency/service.js';
+test('testing schema, synthetic pipeline, RLS isolation and immutable snapshots',async()=>{
+ const {db,operator,pool}=await testDatabase();
+ try{
+  await operator.query(await readFile(new URL('../supabase/testing-migrations/001_synthetic_student_placement_import.sql',import.meta.url),'utf8'));
+  await operator.query(await readFile(new URL('../supabase/testing-migrations/002_competency_intelligence.sql',import.meta.url),'utf8'));
+  await operator.query(await readFile(new URL('../supabase/testing-migrations/003_competency_evidence_guards.sql',import.meta.url),'utf8'));
+  for(let i=0;i<100;i++){
+   const id=stableId('student:'+i);
+   await operator.query("INSERT INTO erp.students(id,enrollment_no,full_name,source_batch,source_hash) VALUES($1,$2,$3,'2028','fixture')",[id,`SYN${String(i).padStart(3,'0')}`,`Synthetic ${i}`]);
+   await operator.query("INSERT INTO testing.synthetic_students(student_id,source_record,enrollment_no,source_hash,source_data) VALUES($1,$2,$2,'fixture','{}')",[id,`SYN${String(i).padStart(3,'0')}`]);
+  }
+  await operator.query('BEGIN');
+  const catalog=await seedCatalogs(operator),stats=await seedFixtures(operator,catalog);
+  await operator.query('COMMIT');
+  assert.equal(stats.students,100);assert.equal(stats.snapshots,1600);
+  const owner=stableId('owner'),other=stableId('other'),admin=stableId('admin'),officer=stableId('officer');
+  for(const id of [owner,other,admin,officer])await operator.query('INSERT INTO auth.users(id) VALUES($1)',[id]);
+  await operator.query("INSERT INTO erp.memberships(user_id,role,student_id) VALUES($1,'student',$2),($3,'student',$4),($5,'admin',null)",[owner,stableId('student:0'),other,stableId('student:1'),admin]);
+  await operator.query('INSERT INTO placement.officers(user_id) VALUES($1)',[officer]);
+  const read=actor=>withActor(pool,actor,async c=>(await c.query('SELECT DISTINCT student_id FROM competency.evidence')).rows);
+  assert.deepEqual((await read(owner)).map(r=>r.student_id),[stableId('student:0')]);
+  assert.deepEqual((await read(other)).map(r=>r.student_id),[stableId('student:1')]);
+  assert.equal((await read(admin)).length,0);assert.equal((await read(officer)).length,100);
+  assert.equal((await withActor(pool,officer,c=>c.query("SELECT competency.can('review') AS allowed"))).rows[0].allowed,false);
+  assert.equal((await withActor(pool,owner,c=>c.query("UPDATE competency.evidence SET review_status='accepted' RETURNING id"))).rows.length,0);
+  await assert.rejects(operator.query("UPDATE competency.snapshots SET result='{}'"),/immutable/);
+  await operator.query('BEGIN');await seedCatalogs(operator);await seedFixtures(operator,catalog);await operator.query('COMMIT');
+  assert.equal((await operator.query('SELECT count(*)::int n FROM competency.snapshots')).rows[0].n,1600);
+  assert.equal((await operator.query('SELECT count(*)::int n FROM erp.students')).rows[0].n,100);
+  await operator.query("INSERT INTO competency.permissions(user_id,permission) VALUES($1,'review'),($1,'manage_rubrics'),($1,'approve_shortlist')",[officer]);
+  const env={SERVICE_TOKEN:'x'.repeat(40),COMPETENCY_TESTING:'true',DSU_ENVIRONMENT:'testing',SUPABASE_URL:'https://bsiibnoqfuyxieogions.supabase.co',DATABASE_URL:'postgresql://dsu_api.bsiibnoqfuyxieogions:x@aws-0-ap-southeast-2.pooler.supabase.com/postgres',COMPETENCY_WORKER:'off'};
+  const aiInputs=[];
+  const app=await buildApp({pool:{...pool,end:async()=>{}},env,verify:async token=>({id:token}),logger:false,research:{enabled:false},studentAi:async({input})=>{
+   aiInputs.push(input);const e=input.evidence[0];
+   return {observations:[{evidenceId:e.id,sourceRef:e.source_ref,quote:'request validation',competencyCode:'SW-06',interpretation:'Potential API work sample.',limitations:'Human review is required.'}]};
+  }});
+  const call=(actor,path,body)=>app.inject({method:body?'POST':'GET',url:'/api/v1'+path,headers:{authorization:'Bearer '+actor},...(body?{payload:body}:{})});
+  try{
+   let response=await call(owner,'/student/career-intelligence');assert.equal(response.statusCode,200,response.body);assert.equal(response.json().data.identity.id,stableId('student:0'));
+   response=await call(owner,'/placement/talent-intelligence');assert.equal(response.statusCode,403);
+   response=await call(admin,'/competency/catalog');assert.equal(response.statusCode,403);
+   response=await call(officer,'/placement/talent-intelligence');assert.equal(response.statusCode,200,response.body);assert.equal(response.json().data.counts.students,100);
+   const t=catalog.templates.find(t=>t.role_id==='software-development-engineer'&&t.status==='simulated');
+   response=await call(officer,'/placement/talent-intelligence/cohort?templateId='+t.id);assert.equal(response.statusCode,200,response.body);assert.equal(response.json().data.cohortTotal,100);
+   const snapshot=response.json().data.rows.find(r=>r.snapshotId);
+   response=await call(officer,'/placement/talent-intelligence/shortlists',{snapshotId:snapshot.snapshotId,reason:'Attempt to approve simulated evidence'});assert.equal(response.statusCode,400);
+   const body={code:'SW-06',title:'API work sample',description:'Implemented request validation and tests.',contribution:'I implemented the validation.',sourceRef:'work:api-example'};
+   response=await call(owner,'/student/career-intelligence/evidence',body);assert.equal(response.statusCode,200,response.body);const eid=response.json().data.id;
+   response=await call(owner,'/student/career-intelligence/evidence',body);assert.equal(response.json().data.duplicate,true);
+   response=await call(other,'/competency/extract',{evidenceIds:[eid]});assert.equal(response.statusCode,404);assert.equal(aiInputs.length,0);
+   response=await call(owner,'/competency/extract',{evidenceIds:[eid]});assert.equal(response.statusCode,200,response.body);
+   assert.equal(response.json().data.content.observations[0].evidenceId,eid);
+   assert.deepEqual(Object.keys(aiInputs[0]).sort(),['competencyCodes','evidence']);
+   assert.deepEqual(Object.keys(aiInputs[0].evidence[0]).sort(),['description','id','source_ref']);
+   const documentId=stableId('private-document');
+   await operator.query("INSERT INTO student.documents(id,user_id,filename,kind,content,sha256) VALUES($1,$2,'sample.txt','attachment','Private controlled work sample.','test')",[documentId,owner]);
+   response=await call(other,'/student/career-intelligence/evidence',{...body,sourceRef:'work:stolen-attachment',artifactId:documentId});assert.equal(response.statusCode,404);
+   response=await call(owner,'/student/career-intelligence/evidence',{...body,sourceRef:'work:private-attachment',artifactId:documentId});assert.equal(response.statusCode,200,response.body);const attached=response.json().data.id;
+   response=await call(other,'/competency/artifact/'+attached);assert.equal(response.statusCode,404);
+   response=await call(officer,'/competency/artifact/'+attached);assert.equal(response.statusCode,200,response.body);assert.equal(response.json().data.content,'Private controlled work sample.');
+   response=await call(other,'/student/career-intelligence/corrections',{evidenceId:eid,reason:'Try changing another student evidence'});assert.equal(response.statusCode,404);
+   response=await call(owner,'/student/career-intelligence/corrections',{evidenceId:eid,reason:'Please verify my API sample.'});assert.equal(response.statusCode,200,response.body);const rid=response.json().data.id;
+   response=await call(officer,'/placement/talent-intelligence/review',{evidenceId:eid,status:'accepted',reason:'Observed the attributable work sample.',requestId:rid});assert.equal(response.statusCode,200,response.body);
+   const def=catalog.rubrics.find(r=>r.code==='SW-06').definition;
+   response=await call(officer,'/placement/talent-intelligence/rubrics',{code:'SW-06',definition:{instructions:def.instructions,dimensions:def.dimensions},status:'approved',reason:'Local test approval only, not official DSU policy.'});assert.equal(response.statusCode,200,response.body);const rubricId=response.json().data.id;
+   response=await call(officer,'/placement/talent-intelligence/assess',{studentId:stableId('student:0'),rubricId,assessmentSet:'test-exam',dimensions:Object.fromEntries(def.dimensions.map(d=>[d.key,3])),evidenceIds:[eid],rationale:'Observed all criteria in the controlled test work sample.'});assert.equal(response.statusCode,200,response.body);assert.equal(response.json().data.level,3);
+   response=await call(officer,'/placement/talent-intelligence/templates',{roleId:'backend-developer',status:'approved',assessmentSet:'test-exam',minimumCoverage:70,requirements:[{code:'SW-06',rubricId,weight:100}],reason:'Controlled integration test standard only.'});assert.equal(response.statusCode,200,response.body);const operationalTemplate=response.json().data.id;
+   const operational=await withActor(pool,officer,async c=>recalculateStudent(c,stableId('student:0'),await loadTemplate(c,operationalTemplate),{}));
+   response=await call(officer,'/placement/talent-intelligence/shortlists',{snapshotId:operational.id,reason:'All criteria reviewed in a controlled test.'});assert.equal(response.statusCode,200,response.body);const shortlistId=response.json().data.id;
+   response=await call(officer,'/placement/talent-intelligence/shortlists/decision',{id:shortlistId,decision:'approved'});assert.equal(response.statusCode,400);
+   const reviewer=stableId('independent-reviewer');
+   await operator.query('INSERT INTO auth.users(id) VALUES($1)',[reviewer]);
+   await operator.query('INSERT INTO placement.officers(user_id) VALUES($1)',[reviewer]);
+   response=await call(reviewer,'/competency/artifact/'+attached);assert.equal(response.statusCode,404);
+   await operator.query("INSERT INTO competency.permissions(user_id,permission) VALUES($1,'approve_shortlist')",[reviewer]);
+   response=await call(reviewer,'/placement/talent-intelligence/shortlists/decision',{id:shortlistId,decision:'approved'});assert.equal(response.statusCode,200,response.body);
+   response=await call(reviewer,'/placement/talent-intelligence/shortlists/decision',{id:shortlistId,decision:'approved'});assert.equal(response.statusCode,400);
+   // Existing, consented measurements become pending evidence, never proficiency.
+   const account=stableId('stored-platform');
+   await operator.query("INSERT INTO student.skill_profiles(student_id,consent_version,visibility) VALUES($1,1,'{\"platforms\":true}') ON CONFLICT(student_id) DO UPDATE SET consent_version=1,visibility=excluded.visibility",[stableId('student:0')]);
+   await operator.query("INSERT INTO student.platform_accounts(id,student_id,platform,state) VALUES($1,$2,'github','linked')",[account,stableId('student:0')]);
+   await operator.query("INSERT INTO student.platform_metrics(account_id,student_id,platform,metric,value,verification,method) VALUES($1,$2,'github','repositories','3','platform_verified','local test')",[account,stableId('student:0')]);
+   response=await call(owner,'/student/career-intelligence/import-platforms',{});assert.equal(response.statusCode,200,response.body);assert.equal(response.json().data.imported,1);
+   response=await call(owner,'/student/career-intelligence/import-platforms',{});assert.equal(response.json().data.imported,0);
+   const shared=await withActor(pool,officer,c=>c.query('SELECT id,review_status FROM competency.evidence WHERE source_account_id=$1',[account]));assert.equal(shared.rows.length,1);assert.equal(shared.rows[0].review_status,'pending');
+   await operator.query('UPDATE student.platform_accounts SET visible=false WHERE id=$1',[account]);
+   assert.equal((await withActor(pool,officer,c=>c.query('SELECT id FROM competency.evidence WHERE source_account_id=$1',[account]))).rows.length,0);
+   response=await call(officer,'/placement/talent-intelligence/recalculate',{templateId:t.id,filters:{}});assert.equal(response.statusCode,200,response.body);
+   const job=await processOneJob(pool,officer);assert.ok(job.processed>0);
+   const context=await withActor(pool,owner,c=>competencyProfile(c,stableId('student:0')));
+   assert.equal(compactCompetencies(context).roles.length,context.roles.length);
+  }finally{await app.close();}
+ }finally{await db.close();}
+});

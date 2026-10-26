@@ -1,4 +1,6 @@
 import { z } from "zod";
+import {competencyEnabled} from '../competency/gate.js';
+import {studentCompetencyContext,COMPETENCY_CHAT_RULES} from '../competency/friday.js';
 import { runStudent, owned } from "./context.js";
 import { httpError } from "../../platform/http/errors.js";
 import { reserveAiRequest, finishAiRequest } from "./ai.js";
@@ -136,7 +138,7 @@ const STUDENT_PRIVACY_RULES = `You are F.R.I.D.A.Y., the private student workspa
 const CHAT_TASK = `${STUDENT_PRIVACY_RULES} Give useful career guidance grounded in this student's evidence. Do not mention CGPA, SGPA, attendance, backlogs, academic scores or rankings unless the student explicitly asks about that information. Default card to null for ordinary conversation, explanations and brief follow-ups. Include one structured career card only when the student requests a comparison, roadmap or other structured analysis that benefits from it; the card must add detail rather than repeat the text. What-if scores must be explicitly called projections; omit unsupported scores. No official eligibility decisions. ${RESEARCH_RULES} ${FORMAT_RULES}`;
 const JD_MATCH_TASK = `${STUDENT_PRIVACY_RULES} Compare the student's resume (resume) with the placement drive's job description (jd). officialEligibility is decided by university rules: quote it, never override it, and keep it separate from your advisory fit. Return a jd-match card with one item per JD requirement (skills, qualifications, responsibilities, criteria): label is the requirement, description cites the specific resume evidence or states what is missing, status is strong (direct, clear evidence), partial (related evidence), weak (indirect or unproven mention), missing (no evidence) or unclear (the JD or resume is too vague to judge). Score is an advisory fit estimate or null when evidence is thin; it is not a hiring prediction. Text gives the verdict, key gaps and a prioritised preparation plan. ${RESEARCH_RULES} ${FORMAT_RULES}`;
 
-export function registerChatRoutes(api, { pool, generate, research }) {
+export function registerChatRoutes(api, { pool, generate, research, env = {} }) {
   api.get("/student/assistant/status", async (req) =>
     runStudent(pool, req.actor.id, async () => ({
       data: { chatReady: !!generate.configured, researchReady: !!research?.enabled },
@@ -446,11 +448,12 @@ export function registerChatRoutes(api, { pool, generate, research }) {
         researchStatus = outcome.status === "ok" ? "used" : outcome.status;
       }
     }
+    const competency = competencyEnabled(env) ? await studentCompetencyContext(pool, actor) : null;
     const answer = await generate(
       actor,
       prepared.drive ? "chat.jd-match" : "chat.reply",
-      prepared.drive ? JD_MATCH_TASK : CHAT_TASK,
-      { ...prepared.input, research: researchForModel(found), researchStatus },
+      (prepared.drive ? JD_MATCH_TASK : CHAT_TASK) + (competency ? COMPETENCY_CHAT_RULES : ''),
+      { ...prepared.input, research: researchForModel(found), researchStatus, ...(competency ? {competency} : {}) },
       prepared.drive ? jdMatchSchema : responseSchema,
     );
     const sources = citedSources(answer.citations, found);

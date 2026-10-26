@@ -7,12 +7,20 @@
     "node": ">=24 <25"
   },
   "scripts": {
+    "dev:testing": "node --env-file=.env.competency-testing scripts/start-competency-testing.js",
+    "competency:install:testing": "node --env-file=.env.testing --env-file=.env.testing.operator scripts/competency-testing.js --apply",
+    "competency:verify:testing": "node --env-file=.env.testing --env-file=.env.testing.operator scripts/verify-competency-testing.js",
+    "test:competency": "node --no-wasm-tier-up --test --test-concurrency=1 test/competency-engine.test.js test/competency-database.test.js",
     "dev": "node --env-file-if-exists=.env --watch src/server.js",
     "start": "node --env-file-if-exists=.env src/server.js",
     "mcp:web-search": "node --env-file-if-exists=.env mcp/web-search-server.js",
     "test": "node --no-wasm-tier-up --test --test-concurrency=1",
     "db:check": "node --env-file-if-exists=.env --env-file-if-exists=.env.operator scripts/db-check.js",
     "db:migrate": "node --env-file-if-exists=.env --env-file-if-exists=.env.operator scripts/migrate.js",
+    "db:migrate:testing": "node --env-file-if-exists=.env.testing --env-file-if-exists=.env.testing.operator scripts/migrate-testing.js",
+    "db:check:testing": "node --env-file-if-exists=.env.testing --env-file-if-exists=.env.testing.operator scripts/check-testing-target.js",
+    "db:seed:testing": "node --env-file-if-exists=.env.testing --env-file-if-exists=.env.testing.operator scripts/import-testing-students.mjs",
+    "verify:testing-import": "node --env-file-if-exists=.env.testing --env-file-if-exists=.env.testing.operator scripts/verify-testing-import.js",
     "db:status": "node --env-file-if-exists=.env --env-file-if-exists=.env.operator scripts/db-status.js",
     "db:provision": "node --env-file-if-exists=.env --env-file-if-exists=.env.operator scripts/provision.js",
     "csv:import": "node --env-file-if-exists=.env --env-file-if-exists=.env.operator scripts/import-csv.js",
@@ -42,6 +50,7 @@
     "octokit": "5.0.5",
     "pdf-parse": "^2.4.5",
     "pg": "^8.16.3",
+    "xlsx": "0.18.5",
     "zod": "^4.1.0"
   },
   "devDependencies": {

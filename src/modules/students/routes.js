@@ -15,7 +15,7 @@ export function registerStudentRoutes(api, { pool, generate, env, research }) {
   registerDocumentRoutes(api, { pool, generate });
   registerOpportunityRoutes(api, { pool, generate });
   registerCalendarRoutes(api, { pool, generate });
-  registerChatRoutes(api, { pool, generate, research });
+  registerChatRoutes(api, { pool, generate, research, env });
   registerInterviewRoutes(api, { pool, generate });
   registerAssessmentRoutes(api, { pool, generate, env });
   registerProfileRoutes(api, { pool });
