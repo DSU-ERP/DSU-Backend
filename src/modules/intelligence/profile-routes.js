@@ -75,7 +75,7 @@ export function registerProfileRoutes(api, { pool, env = {}, generate } = {}) {
   });
 
   api.get("/placement/overview/charts", async (req) => {
-    const q = compact(cohortQuery.parse(req.query));
+    const q = compact(cohortQuery.extend({ search: opt(100) }).parse(req.query));
     return officer(req, (client) => officerRead(client, "overview_charts", q));
   });
 
