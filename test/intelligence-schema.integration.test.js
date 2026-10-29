@@ -135,15 +135,22 @@ test("student intelligence schema: ranks, officer reads, RLS and visibility", { 
     const byName = (await rpc("officer", "ranked_students", { category: "advanced", sort: "usn", direction: "desc" })).data;
     assert.deepEqual(byName.rows.map((r) => r.usn), ["R04", "R03", "R02", "R01"]);
 
-    await db.query("INSERT INTO student.skill_profiles(student_id,onboarding_version) VALUES($1,1),($2,0)", [ids.R01, ids.R03]);
-    // Complete needs the current version AND every required platform linked or declared.
-    await db.query("INSERT INTO student.platform_accounts(student_id,platform,state) VALUES($1,'leetcode','declared_none'),($1,'hackerrank','declared_none'),($1,'linkedin','declared_none')", [ids.R01]);
+    await db.query("INSERT INTO student.skill_profiles(student_id,onboarding_version) VALUES($1,student.onboarding_current_version()),($2,0)", [ids.R01, ids.R03]);
+    // Version 2: complete needs the current version AND GitHub, LeetCode and LinkedIn LINKED.
+    // Declaring "none" never satisfies a required platform, and HackerRank is optional.
+    await db.query("INSERT INTO student.platform_accounts(student_id,platform,state) VALUES($1,'leetcode','linked'),($1,'hackerrank','declared_none'),($1,'linkedin','declared_none')", [ids.R01]);
     let complete = (await rpc("officer", "ranked_students", { category: "advanced", skill: "complete" })).data;
-    assert.deepEqual(complete.rows, [], "GitHub not answered: not complete");
+    assert.deepEqual(complete.rows, [], "GitHub not linked: not complete");
     assert.equal((await rpc("officer", "ranked_students", { category: "advanced", skill: "incomplete" })).data.rows.find((r) => r.usn === "R01").skillStatus, "incomplete");
     await db.query("INSERT INTO student.platform_accounts(student_id,platform,state) VALUES($1,'github','declared_none')", [ids.R01]);
     complete = (await rpc("officer", "ranked_students", { category: "advanced", skill: "complete" })).data;
+    assert.deepEqual(complete.rows, [], "declared_none does not satisfy GitHub or LinkedIn");
+    await db.query("UPDATE student.platform_accounts SET state='linked' WHERE student_id=$1 AND platform IN ('github','linkedin')", [ids.R01]);
+    complete = (await rpc("officer", "ranked_students", { category: "advanced", skill: "complete" })).data;
     assert.deepEqual(complete.rows.map((r) => [r.usn, r.skillStatus]), [["R01", "complete"]]);
+    // HackerRank is optional: removing it does not change the status.
+    await db.query("DELETE FROM student.platform_accounts WHERE student_id=$1 AND platform='hackerrank'", [ids.R01]);
+    assert.equal((await rpc("officer", "ranked_students", { category: "advanced", skill: "complete" })).data.rows.length, 1);
     // Disconnecting a required platform after completion makes the profile incomplete again.
     await db.query("UPDATE student.platform_accounts SET state='disconnected' WHERE student_id=$1 AND platform='github'", [ids.R01]);
     assert.deepEqual((await rpc("officer", "ranked_students", { category: "advanced", skill: "complete" })).data.rows, []);
@@ -426,9 +433,9 @@ test("student intelligence schema: ranks, officer reads, RLS and visibility", { 
     assert.deepEqual(core.ranking, { batchRank: rank.batch_rank, categoryRank: rank.category_rank, batchSize: rank.batch_size, categorySize: rank.category_size, scope: "batch" });
     const placed = (await call("officer", "SELECT placement.student_core($1) AS r", [ids.R01])).r;
     assert.deepEqual(placed.placement, { activeOffers: 2, acceptedOffers: 1, highestPackageLpa: "6", placed: true });
-    // R01 has GitHub linked (RLS test) but has not answered the other required platforms yet.
+    // R01 has GitHub linked (RLS test) but LeetCode and LinkedIn are not linked yet.
     assert.equal(placed.skillStatus, "incomplete");
-    await db.query("INSERT INTO student.platform_accounts(student_id,platform,state) VALUES($1,'leetcode','declared_none'),($1,'hackerrank','declared_none'),($1,'linkedin','declared_none')", [ids.R01]);
+    await db.query("INSERT INTO student.platform_accounts(student_id,platform,state) VALUES($1,'leetcode','linked'),($1,'linkedin','linked')", [ids.R01]);
     assert.equal((await call("officer", "SELECT placement.student_core($1) AS r", [ids.R01])).r.skillStatus, "complete");
     await assert.rejects(call("officer", "SELECT placement.student_core($1)", [randomUUID()]), code("PT404"));
     await assert.rejects(call("b", "SELECT placement.student_core($1)", [ids.R02]), code("PT403"));
@@ -454,10 +461,10 @@ test("student intelligence schema: ranks, officer reads, RLS and visibility", { 
     assert.deepEqual(early.rows.map((r) => [r.usn, r.skillStatus, r.linkedPlatforms]), [["R01", "complete", []]]);
     await db.query("UPDATE student.skill_profiles SET consent_version=1,consented_at=now() WHERE student_id=$1", [ids.R01]);
     const done = (await rpc("officer", "skill_students", { batch: "2027" })).data;
-    assert.deepEqual(done.rows.map((r) => [r.usn, r.skillStatus, r.linkedPlatforms]), [["R01", "complete", ["github"]]]);
+    assert.deepEqual(done.rows.map((r) => [r.usn, r.skillStatus, r.linkedPlatforms]), [["R01", "complete", ["github", "leetcode", "linkedin"]]]);
     // Hidden accounts are never listed.
     await db.query("UPDATE student.platform_accounts SET visible=false WHERE student_id=$1 AND platform='github'", [ids.R01]);
-    assert.deepEqual((await rpc("officer", "skill_students", { batch: "2027" })).data.rows[0].linkedPlatforms, []);
+    assert.deepEqual((await rpc("officer", "skill_students", { batch: "2027" })).data.rows[0].linkedPlatforms, ["leetcode", "linkedin"]);
     await db.query("UPDATE student.platform_accounts SET visible=true WHERE student_id=$1 AND platform='github'", [ids.R01]);
     assert.ok(done.rows[0].completedAt);
     assert.equal(done.rows[0].cgpa, "9.25");

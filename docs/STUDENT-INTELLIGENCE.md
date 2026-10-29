@@ -48,9 +48,10 @@ Placement Officer profile, F.R.I.D.A.Y.).
    using keys held only in backend env. Only public data is read; private repositories are never
    requested.
 5. Hugging Face: official public Hub API (counts from `/api/users/{u}/overview`).
-   LeetCode, HackerRank, LinkedIn and Kaggle: no supported public profile API, so validated
-   profile links plus clearly labelled student-submitted figures. These are never fetched or
-   scraped.
+   LeetCode: public profile data (solved counts, topic tags, contest summary) read by the sync
+   worker since 27 October 2026; see docs/student-ranking/evidence-sources.md. HackerRank,
+   LinkedIn and Kaggle: no supported public profile API, so validated profile links plus clearly
+   labelled student-submitted figures. These are never fetched or scraped.
 6. Background sync: Postgres job table, `FOR UPDATE SKIP LOCKED` leasing, an in-process poller
    started by `server.js` (env `SYNC_WORKER`). External calls happen outside transactions.
 7. Provenance values: `institution_verified`, `platform_verified`, `student_submitted`,

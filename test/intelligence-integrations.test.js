@@ -355,6 +355,33 @@ test("github: fetchProfile uses GraphQL and contributor stats (202 pending, 204 
   await assert.rejects(gh.fetchProfile("ghu_token", { login: "octocat", externalId: "99" }), (e) => e.code === "CREDENTIAL_INVALID");
 });
 
+test("github: organisation repositories are collected with commit share; own-repository metrics are unchanged", async () => {
+  const week = Math.floor((Date.now() - 7 * DAY) / 1000);
+  const orgNode = (id, name, extra = {}) => repoNode(id, name, { nameWithOwner: "dsu-club/" + name, url: "https://github.com/dsu-club/" + name,
+    owner: { login: "dsu-club", __typename: "Organization" }, ...extra });
+  const { gh, calls } = app((call) => {
+    if (call.url === "https://api.github.com/graphql") {
+      assert.match(call.body.query, /ownerAffiliations: \[ORGANIZATION_MEMBER\]/);
+      const graph = profileGraph();
+      graph.user.organizationRepositories = { totalCount: 2, nodes: [orgNode(70, "club-site"), orgNode(71, "forked", { isFork: true })] };
+      return { body: { data: graph } };
+    }
+    if (call.url.endsWith("/repos/dsu-club/club-site/stats/contributors"))
+      return { body: [{ author: { id: 42, login: "octocat" }, total: 12, weeks: [{ w: week, a: 400 }] }, { author: { id: 7, login: "other" }, total: 28, weeks: [] }] };
+    if (call.url.includes("/stats/contributors")) return { status: 204 };
+    throw new Error("unexpected " + call.url);
+  });
+  const profile = await gh.fetchProfile("ghu_token", { login: "octocat", externalId: "42" });
+  assert.deepEqual(profile.organizationRepositories.map((r) => r.nameWithOwner), ["dsu-club/club-site"], "forks are dropped");
+  assert.deepEqual(profile.shares[70], { commits: 12, totalCommits: 40, contributors: 2 });
+  assert.equal(profile.linesAdded.value, 0, "organisation additions never enter the student's lines-added metric");
+  assert.ok(calls.some((c) => c.url.endsWith("/repos/dsu-club/club-site/stats/contributors")));
+  const result = githubResult(profile);
+  const club = result.repositories.find((r) => r.repo_id === 70);
+  assert.deepEqual([club.owner_login, club.evidence.ownerType, club.evidence.stats.commits], ["dsu-club", "Organization", 12]);
+  assert.deepEqual(result.snapshot.organizationRepositoryIds, [70]);
+});
+
 test("github: primary rate limits are not retried in-process and carry the reset time", async () => {
   const reset = Math.floor(Date.now() / 1000) + 1800;
   let count = 0;

@@ -168,7 +168,7 @@ export function validateSubmitted(platform, submitted = {}) {
     : { ok: false, issues: result.error.issues.map((i) => i.path.join(".") || "submitted") };
 }
 
-export const SYNCABLE_PLATFORMS = Object.freeze(["github", "huggingface"]);
+export const SYNCABLE_PLATFORMS = Object.freeze(["github", "leetcode", "huggingface"]);
 export const SYNCABLE_AUTH = Object.freeze(["github_app", "github_pat", "public_api"]);
 export function isPlatform(value) {
   return PLATFORMS.includes(value);

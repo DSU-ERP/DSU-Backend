@@ -125,6 +125,51 @@ const httpsUrl = (value) => {
   }
 };
 
+// Root-level names that are observable evidence for the ranking rubric. Only
+// names are read (never file contents), so this is cheap and bounded.
+const MANIFESTS = new Set(["package.json", "requirements.txt", "pyproject.toml", "setup.py", "pipfile", "environment.yml",
+  "pom.xml", "build.gradle", "build.gradle.kts", "cargo.toml", "go.mod", "cmakelists.txt", "makefile", "composer.json",
+  "gemfile", "pubspec.yaml", "platformio.ini", "package.xml", "mix.exs", "deno.json", "build.sbt"]);
+const TEST_DIRS = new Set(["test", "tests", "__tests__", "spec", "specs", "testing", "e2e"]);
+const TEST_FILE = /(^test_.+\.py$|_test\.(go|py)$|\.(test|spec)\.[cm]?[jt]sx?$|^jest\.config\.|^vitest\.config\.|^pytest\.ini$|^tox\.ini$|^phpunit\.xml)/i;
+const SOURCE_DIRS = new Set(["src", "lib", "app", "pkg", "cmd", "internal", "server", "client", "backend", "frontend", "api", "core",
+  "components", "modules", "include", "firmware", "scripts", "notebooks", "models"]);
+const CI_FILES = new Set([".gitlab-ci.yml", ".travis.yml", "jenkinsfile", "azure-pipelines.yml", "bitbucket-pipelines.yml"]);
+const DOCKER_FILES = new Set(["dockerfile", "docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"]);
+
+/**
+ * Structural evidence from the repository's root listing and workflows.
+ * observed=false when the tree could not be read (empty repository or no
+ * default branch): absence of evidence, never evidence of absence.
+ */
+export function repositoryEvidence(node) {
+  const entries = node?.rootTree?.entries;
+  const workflows = node?.workflows?.entries;
+  const ownerType = ["Organization", "User"].includes(node?.owner?.__typename) ? node.owner.__typename : null;
+  if (!Array.isArray(entries)) return { observed: false, ownerType, releases: int(node?.releases?.totalCount), diskKb: int(node?.diskUsage) };
+  const files = [], dirs = [];
+  for (const e of entries.slice(0, 1000)) {
+    const name = str(e?.name, 200);
+    if (!name) continue;
+    (e.type === "tree" ? dirs : files).push(name.toLowerCase());
+  }
+  const workflowCount = Array.isArray(workflows) ? workflows.filter((w) => /\.ya?ml$/i.test(String(w?.name || ""))).length : 0;
+  return {
+    observed: true,
+    ownerType,
+    rootEntries: files.length + dirs.length,
+    manifests: files.filter((f) => MANIFESTS.has(f)).slice(0, 10),
+    tests: dirs.some((d) => TEST_DIRS.has(d)) || files.some((f) => TEST_FILE.test(f)),
+    sourceDirs: dirs.some((d) => SOURCE_DIRS.has(d)),
+    gitignore: files.includes(".gitignore"),
+    docker: files.some((f) => DOCKER_FILES.has(f)),
+    ci: workflowCount > 0 || files.some((f) => CI_FILES.has(f)) || dirs.includes(".circleci"),
+    workflows: workflowCount,
+    releases: int(node.releases?.totalCount),
+    diskKb: int(node.diskUsage),
+  };
+}
+
 export function normalizeRepository(node) {
   if (!node || !Number.isSafeInteger(node.databaseId)) return null;
   const readme = [node.readmeMd, node.readmeLower, node.readmeRst, node.readmePlain].find((o) => o && Number.isFinite(o.byteSize));
@@ -154,12 +199,13 @@ export function normalizeRepository(node) {
     topics: (node.repositoryTopics?.nodes || []).map((t) => str(t?.topic?.name, 50)).filter(Boolean).slice(0, 10),
     hasReadme: !!readme,
     readmeBytes: readme ? int(readme.byteSize) : null,
+    evidence: repositoryEvidence(node),
   };
 }
 
 const REPO_FIELDS = `
   databaseId name nameWithOwner url description isFork isArchived pushedAt updatedAt
-  stargazerCount forkCount owner { login }
+  stargazerCount forkCount owner { login __typename }
   primaryLanguage { name }
   languages(first: 10, orderBy: { field: SIZE, direction: DESC }) { edges { size node { name } } }
   licenseInfo { spdxId }
@@ -169,6 +215,10 @@ const REPO_FIELDS = `
   readmeLower: object(expression: "HEAD:readme.md") { ... on Blob { byteSize } }
   readmeRst: object(expression: "HEAD:README.rst") { ... on Blob { byteSize } }
   readmePlain: object(expression: "HEAD:README") { ... on Blob { byteSize } }
+  diskUsage
+  releases { totalCount }
+  rootTree: object(expression: "HEAD:") { ... on Tree { entries { name type } } }
+  workflows: object(expression: "HEAD:.github/workflows") { ... on Tree { entries { name } } }
 `;
 export const PROFILE_QUERY = `query($login: String!) {
   viewer { login databaseId }
@@ -176,6 +226,8 @@ export const PROFILE_QUERY = `query($login: String!) {
     login databaseId url
     publicRepos: repositories(privacy: PUBLIC, ownerAffiliations: [OWNER]) { totalCount }
     repositories(first: 100, privacy: PUBLIC, ownerAffiliations: [OWNER], isFork: false,
+      orderBy: { field: PUSHED_AT, direction: DESC }) { totalCount nodes { ${REPO_FIELDS} } }
+    organizationRepositories: repositories(first: 50, privacy: PUBLIC, ownerAffiliations: [ORGANIZATION_MEMBER], isFork: false,
       orderBy: { field: PUSHED_AT, direction: DESC }) { totalCount nodes { ${REPO_FIELDS} } }
     pinnedItems(first: 6, types: [REPOSITORY]) { nodes { ... on Repository { isPrivate ${REPO_FIELDS} } } }
     contributionsCollection {
@@ -197,6 +249,25 @@ export function sumAdditions(stats, userId, login, now = Date.now()) {
   );
   if (!mine) return 0;
   return (mine.weeks || []).reduce((sum, week) => (week && week.w >= cutoff && Number.isSafeInteger(week.a) && week.a > 0 ? sum + week.a : sum), 0);
+}
+
+/**
+ * The student's share of a repository's commits from the same contributor
+ * statistics: {commits, totalCommits, contributors}. Commits are counted by
+ * GitHub per author; a share says who committed, not who wrote every line.
+ */
+export function contributorShare(stats, userId, login) {
+  if (!Array.isArray(stats)) return { commits: 0, totalCommits: 0, contributors: 0 };
+  let commits = 0, totalCommits = 0, contributors = 0;
+  for (const entry of stats) {
+    const total = Number.isSafeInteger(entry?.total) && entry.total > 0 ? entry.total : 0;
+    if (!total) continue;
+    contributors++;
+    totalCommits += total;
+    if (entry.author && (entry.author.id === userId || (login && String(entry.author.login || "").toLowerCase() === login.toLowerCase())))
+      commits += total;
+  }
+  return { commits, totalCommits, contributors };
 }
 
 /** Parses "2026-11-01 12:00:00 UTC" (github-authentication-token-expiration). */
@@ -355,16 +426,27 @@ export function createGitHub({ clientId, clientSecret, redirectUrl, fetch, now =
         const owned = (user.repositories?.nodes || []).map(normalizeRepository).filter(Boolean).filter((r) => !r.isFork);
         const pinnedNodes = (user.pinnedItems?.nodes || []).filter((n) => n && n.isPrivate !== true);
         const pinned = pinnedNodes.map(normalizeRepository).filter(Boolean);
+        // Public, non-fork repositories of organisations the student belongs to, plus
+        // pinned organisation repositories. Credit depends on the student's commit share.
+        const mine = (repo) => repo.owner?.toLowerCase() === user.login.toLowerCase();
+        const organization = [...(user.organizationRepositories?.nodes || []).map(normalizeRepository), ...pinned]
+          .filter((r) => r && !r.isFork && !mine(r) && r.evidence?.ownerType === "Organization")
+          .filter((r, i, all) => all.findIndex((x) => x.id === r.id) === i);
         const days = (user.contributionsCollection?.contributionCalendar?.weeks || [])
           .flatMap((w) => w?.contributionDays || [])
           .filter((d) => d && /^\d{4}-\d{2}-\d{2}$/.test(d.date))
           .map((d) => ({ date: d.date, count: int(d.contributionCount) }));
-        // Lines added: contributor stats for at most 10 recently pushed own repositories.
-        const eligible = owned.filter((r) => r.owner?.toLowerCase() === user.login.toLowerCase()).slice(0, 10);
+        // Contributor stats for at most 10 recently pushed own repositories (lines added,
+        // commit share) and 10 organisation repositories (commit share decides credit).
+        const eligible = owned.filter(mine).slice(0, 10);
+        const orgEligible = organization.slice(0, 10);
         const additions = {};
+        const shares = {};
         let counted = 0;
         let pending = 0;
-        for (const repo of eligible) {
+        let orgPending = 0;
+        for (const repo of [...eligible, ...orgEligible]) {
+          const own = mine(repo);
           const [owner, name] = repo.nameWithOwner.split("/");
           let response;
           try {
@@ -376,19 +458,24 @@ export function createGitHub({ clientId, clientSecret, redirectUrl, fetch, now =
             continue;
           }
           if (response.status === 202) {
-            pending++;
+            if (own) pending++;
+            else orgPending++;
             continue;
           }
           additions[repo.id] = response.status === 204 ? 0 : sumAdditions(response.data, user.databaseId, user.login, now());
-          counted++;
+          if (response.status !== 204) shares[repo.id] = contributorShare(response.data, user.databaseId, user.login);
+          if (own) counted++;
         }
-        const lines = Object.values(additions).reduce((a, b) => a + b, 0);
+        // The lines-added metric stays about the student's own repositories.
+        const lines = eligible.reduce((sum, r) => sum + (additions[r.id] ?? 0), 0);
         return {
           account: { login: user.login, id: user.databaseId, url: `https://github.com/${user.login}` },
           publicRepos: int(user.publicRepos?.totalCount),
           originalRepos: int(user.repositories?.totalCount),
           repositories: owned,
           pinned,
+          organizationRepositories: organization,
+          organizationStatsPending: orgPending,
           calendar: {
             total: int(user.contributionsCollection?.contributionCalendar?.totalContributions),
             commits: int(user.contributionsCollection?.totalCommitContributions),
@@ -397,6 +484,7 @@ export function createGitHub({ clientId, clientSecret, redirectUrl, fetch, now =
           },
           linesAdded: { value: counted ? lines : null, counted, eligible: eligible.length, pending },
           additions,
+          shares,
         };
       });
     },

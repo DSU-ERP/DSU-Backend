@@ -16,7 +16,7 @@ export function rateLimitDelay(headers) {
   return Number.isFinite(retry) && retry >= 0 ? retry : null;
 }
 
-async function readCapped(response) {
+export async function readCapped(response) {
   const declared = Number(response.headers?.get?.("content-length"));
   if (Number.isFinite(declared) && declared > BODY_LIMIT) throw new ProviderError("PROVIDER_UNAVAILABLE", "Response too large.");
   if (!response.body?.getReader) return response.text();

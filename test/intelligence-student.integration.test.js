@@ -102,7 +102,15 @@ test("student skills routes and the sync worker", { timeout: 300000 }, async (t)
       return { account: { username }, counts: { models: 2, datasets: 0, spaces: 1 }, top: { models: [{ id: username + "/m", likes: 3 }], datasets: [], spaces: [] } };
     },
   };
-  const integrations = { github, huggingface };
+  // LeetCode is synced from public profile data; tests never reach leetcode.com.
+  const leetcode = {
+    calls: [],
+    async fetchProfile(username) {
+      this.calls.push(username);
+      return { account: { username }, realName: "Student A", solved: { all: 120, easy: 60, medium: 50, hard: 10 }, contest: null, tags: [{ slug: "array", name: "Array", solved: 40, level: "fundamental" }] };
+    },
+  };
+  const integrations = { github, huggingface, leetcode };
   const app = await buildApp({ pool, env: ENV, logger: false, verify: async (token) => ({ id: users[token] }), integrations });
   const logs = [];
   const worker = createSyncWorker({ pool, env: ENV, integrations, log: (entry) => logs.push(entry) });
@@ -136,7 +144,8 @@ test("student skills routes and the sync worker", { timeout: 300000 }, async (t)
     let response = await post("/student/skills/onboarding", { action: "complete", consent: true, revision: 0 });
     assert.equal(response.statusCode, 409);
     assert.equal(response.json().error.code, "ONBOARDING_INCOMPLETE");
-    assert.deepEqual(response.json().error.missing, ["identity", "github", "leetcode", "hackerrank", "linkedin", "visibility"]);
+    // Version 2: GitHub, LeetCode and LinkedIn must be linked; HackerRank is optional.
+    assert.deepEqual(response.json().error.missing, ["identity", "github", "leetcode", "linkedin", "visibility"]);
     response = await post("/student/skills/onboarding", { action: "confirm_identity" });
     assert.equal(response.statusCode, 200);
     assert.ok(response.json().data.identityConfirmedAt);
@@ -153,7 +162,7 @@ test("student skills routes and the sync worker", { timeout: 300000 }, async (t)
     assert.equal((await post("/student/skills/onboarding", { action: "visibility", visibility: { platforms: true }, revision })).statusCode, 400);
   });
 
-  await t.test("link-only platforms validate handles and submitted figures", async () => {
+  await t.test("platform links validate handles and submitted figures; LeetCode is queued for sync", async () => {
     let response = await post("/student/skills/platforms/github", { action: "link", value: "octocat" });
     assert.equal(response.statusCode, 400);
     assert.equal(response.json().error.code, "GITHUB_AUTH_REQUIRED");
@@ -165,10 +174,11 @@ test("student skills routes and the sync worker", { timeout: 300000 }, async (t)
     response = await post("/student/skills/platforms/leetcode", { action: "link", value: "https://leetcode.com/u/coder/", submitted: { solved: 120, easy: 60, medium: 50, hard: 10 } });
     assert.equal(response.statusCode, 200);
     assert.deepEqual(response.json().data, {
-      platform: "leetcode", state: "linked", handle: "coder", profileUrl: "https://leetcode.com/u/coder/", authMethod: "link_only",
-      ownership: "student_submitted", visible: true, syncStatus: "not_applicable", syncError: null, lastSyncedAt: null,
+      platform: "leetcode", state: "linked", handle: "coder", profileUrl: "https://leetcode.com/u/coder/", authMethod: "public_api",
+      ownership: "student_submitted", visible: true, syncStatus: "pending", syncError: null, lastSyncedAt: null, nameMatch: "unverified",
       submitted: { solved: 120, easy: 60, medium: 50, hard: 10 }, metrics: [],
     });
+    assert.deepEqual(await one("SELECT reason,status FROM student.sync_jobs WHERE student_id=$1 AND platform='leetcode'", [students.a]), { reason: "connect", status: "pending" });
     response = await post("/student/skills/platforms/hackerrank", { action: "declare_none" });
     assert.equal(response.json().data.state, "declared_none");
     response = await post("/student/skills/platforms/linkedin", { action: "link", value: "https://in.linkedin.com/in/student-a", visible: false });
@@ -260,7 +270,7 @@ test("student skills routes and the sync worker", { timeout: 300000 }, async (t)
   });
 
   await t.test("worker: claims jobs, writes metrics, repositories and snapshots with provenance", async () => {
-    assert.equal(await worker.runOnce(), 1);
+    assert.equal(await worker.runOnce(), 2, "one general job plus the LeetCode group");
     assert.equal(await worker.runOnce(), 1);
     assert.equal(await worker.runOnce(), 1);
     assert.equal(await worker.runOnce(), 0);
@@ -278,7 +288,18 @@ test("student skills routes and the sync worker", { timeout: 300000 }, async (t)
     assert.ok(repos[0].recommendation_reasons.includes("Has a README"));
     assert.equal(repos[0].additions_52w, 20);
     const snapshots = (await db.query("SELECT payload,status,method FROM student.platform_snapshots WHERE student_id=$1", [students.a])).rows;
-    assert.equal(snapshots.length, 2);
+    assert.equal(snapshots.length, 3);
+    const lc = (await db.query("SELECT metric,value,verification,method FROM student.platform_metrics WHERE student_id=$1 AND platform='leetcode' ORDER BY metric", [students.a])).rows;
+    assert.deepEqual(lc.map((m) => [m.metric, m.verification, m.method]), [
+      ["problems.easy", "platform_verified", "leetcode_public_graphql"], ["problems.hard", "platform_verified", "leetcode_public_graphql"],
+      ["problems.medium", "platform_verified", "leetcode_public_graphql"], ["problems.solved", "platform_verified", "leetcode_public_graphql"],
+      ["topics.solved", "platform_verified", "leetcode_public_graphql"]]);
+    assert.deepEqual(leetcode.calls, ["coder"]);
+    // "coder" does not resemble "Student a"; the LeetCode profile name "Student A" does.
+    assert.deepEqual(await one("SELECT name_match,name_match_source FROM student.platform_accounts WHERE student_id=$1 AND platform='leetcode'", [students.a]),
+      { name_match: "verified", name_match_source: "profile_name" });
+    assert.ok(!JSON.stringify((await db.query("SELECT payload FROM student.platform_snapshots WHERE platform='leetcode'")).rows).includes("Student A"), "the profile name is not stored");
+    assert.ok((await one("SELECT count(*)::int AS n FROM ranking.queue WHERE student_id=$1", [students.a])).n <= 1, "new evidence queues one recalculation");
     const hf = await one("SELECT value,verification FROM student.platform_metrics WHERE student_id=$1 AND metric='models.count'", [students.a]);
     assert.deepEqual(hf, { value: 2, verification: "platform_verified" });
     assert.equal(calls.fetch[0].options.externalId, "42");
@@ -301,7 +322,7 @@ test("student skills routes and the sync worker", { timeout: 300000 }, async (t)
     assert.equal((await post("/student/skills/featured", { repoIds: [2001] }, "b")).statusCode, 200);
   });
 
-  await t.test("onboarding completes with declare_none and without optional platforms", async () => {
+  await t.test("onboarding completes once the required platforms are linked, without optional ones", async () => {
     const status = (await post("/student/skills/onboarding", { action: "confirm_identity" })).json().data;
     assert.deepEqual(status.missing, []);
     assert.equal(status.sections.kaggle, false, "Kaggle is optional");
@@ -311,7 +332,7 @@ test("student skills routes and the sync worker", { timeout: 300000 }, async (t)
     assert.equal(response.statusCode, 200);
     assert.equal(response.json().data.complete, true);
     const profile = await one("SELECT onboarding_version,consent_version,consented_at,onboarding_completed_at FROM student.skill_profiles WHERE student_id=$1", [students.a]);
-    assert.equal(profile.onboarding_version, 1);
+    assert.equal(profile.onboarding_version, 2);
     assert.equal(profile.consent_version, 1);
     assert.ok(profile.consented_at && profile.onboarding_completed_at);
     assert.deepEqual((await call("GET", "/session")).json().data, { role: "student", home: "/student", onboardingRequired: false });
@@ -329,7 +350,7 @@ test("student skills routes and the sync worker", { timeout: 300000 }, async (t)
     assert.equal(response.statusCode, 429);
     assert.equal(response.json().error.code, "REFRESH_LIMIT");
     assert.ok(Number(response.headers["retry-after"]) > 500);
-    assert.equal((await post("/student/skills/platforms/leetcode/refresh", {})).json().error.code, "NOT_SYNCABLE");
+    assert.equal((await post("/student/skills/platforms/linkedin/refresh", {})).json().error.code, "NOT_SYNCABLE");
     assert.equal(await one("SELECT count(*)::int AS n FROM student.sync_jobs WHERE student_id=$1 AND status='pending'", [students.a]).then((r) => r.n), 1);
   });
 
@@ -371,13 +392,13 @@ test("student skills routes and the sync worker", { timeout: 300000 }, async (t)
     const job = await one("SELECT status,last_error FROM student.sync_jobs WHERE account_id=$1 ORDER BY id DESC LIMIT 1", [account.id]);
     assert.deepEqual(job, { status: "failed", last_error: "CREDENTIAL_INVALID" });
     assert.deepEqual(await one("SELECT sync_status,sync_error,state FROM student.platform_accounts WHERE id=$1", [account.id]), { sync_status: "failed", sync_error: "CREDENTIAL_INVALID", state: "linked" });
-    assert.equal((await one("SELECT onboarding_version FROM student.skill_profiles WHERE student_id=$1", [students.a])).onboarding_version, 1);
+    assert.equal((await one("SELECT onboarding_version FROM student.skill_profiles WHERE student_id=$1", [students.a])).onboarding_version, 2);
     assert.ok((await db.query("SELECT 1 FROM student.platform_metrics WHERE account_id=$1", [account.id])).rows.length > 0);
     assert.equal((await post("/student/skills/platforms/github/refresh", {})).json().error.code, "RECONNECT_REQUIRED");
     // Scheduled sync skips accounts whose credential is invalid.
     await db.query("UPDATE student.platform_accounts SET last_synced_at=now()-interval '3 days'");
     const queued = await enqueueScheduled(pool, 24);
-    assert.equal(queued, 2, "student B's GitHub and A's Hugging Face only");
+    assert.equal(queued, 3, "student B's GitHub, A's LeetCode and A's Hugging Face only");
     assert.equal(await enqueueScheduled(pool, 24), 0, "no duplicate open jobs");
     github.fail = null;
   });
@@ -407,26 +428,36 @@ test("student skills routes and the sync worker", { timeout: 300000 }, async (t)
     huggingface.fail = null;
   });
 
-  await t.test("disconnect revokes at GitHub, deletes credentials and synced data", async () => {
+  await t.test("required platforms cannot be disconnected or declared absent, and a refused request changes nothing", async () => {
     const account = await one("SELECT id FROM student.platform_accounts WHERE student_id=$1 AND platform='github'", [students.a]);
-    const response = await post("/student/skills/platforms/github", { action: "disconnect" });
-    assert.equal(response.statusCode, 200);
-    assert.deepEqual([response.json().data.state, response.json().data.authMethod, response.json().data.handle, response.json().data.metrics], ["disconnected", "none", null, []]);
-    assert.deepEqual(calls.revoke, ["ghu_access_2"]);
-    for (const table of ["platform_credentials", "platform_metrics", "github_repositories", "platform_snapshots", "featured_projects"])
-      assert.equal((await db.query(`SELECT 1 FROM student.${table} WHERE account_id=$1`, [account.id])).rows.length, 0, table);
-    assert.equal((await one("SELECT onboarding_version FROM student.skill_profiles WHERE student_id=$1", [students.a])).onboarding_version, 1);
-    // A required platform is no longer answered: officers see 'incomplete', but the
-    // student is not forced back through onboarding.
+    const before = {
+      credentials: (await db.query("SELECT 1 FROM student.platform_credentials WHERE account_id=$1", [account.id])).rows.length,
+      metrics: (await db.query("SELECT 1 FROM student.platform_metrics WHERE account_id=$1", [account.id])).rows.length,
+      revoked: calls.revoke.length,
+    };
+    assert.equal(before.credentials, 1);
+    assert.ok(before.metrics > 0);
+    for (const platform of ["github", "leetcode", "linkedin"])
+      for (const action of ["disconnect", "declare_none"]) {
+        const response = await post("/student/skills/platforms/" + platform, { action });
+        assert.equal(response.statusCode, 409, platform + " " + action);
+        assert.equal(response.json().error.code, "REQUIRED_PLATFORM");
+      }
+    // Nothing was revoked, deleted or downgraded by the refused requests.
+    assert.equal(calls.revoke.length, before.revoked);
+    assert.equal((await db.query("SELECT 1 FROM student.platform_credentials WHERE account_id=$1", [account.id])).rows.length, before.credentials);
+    assert.equal((await db.query("SELECT 1 FROM student.platform_metrics WHERE account_id=$1", [account.id])).rows.length, before.metrics);
+    assert.equal((await one("SELECT state FROM student.platform_accounts WHERE id=$1", [account.id])).state, "linked");
+    assert.equal((await one("SELECT onboarding_version FROM student.skill_profiles WHERE student_id=$1", [students.a])).onboarding_version, 2);
     assert.equal((await call("GET", "/session")).json().data.onboardingRequired, false);
     assert.equal((await call("GET", "/student/dashboard")).statusCode, 200);
-    const officerView = (await call("GET", `/placement/students/${students.a}/profile`, "officer")).json().data;
-    assert.equal(officerView.core.skillStatus, "incomplete");
-    // B's PAT is deleted locally; PATs cannot be revoked by the app.
-    await post("/student/skills/platforms/github", { action: "declare_none" }, "b");
-    assert.equal(calls.revoke.length, 1);
+    // Hiding a required platform from officers is still allowed.
+    assert.equal((await post("/student/skills/platforms/github", { action: "visibility", visible: false })).statusCode, 200);
+    assert.equal((await post("/student/skills/platforms/github", { action: "visibility", visible: true })).statusCode, 200);
+    // Optional platforms can still be declared absent or disconnected.
+    assert.equal((await post("/student/skills/platforms/kaggle", { action: "declare_none" })).json().data.state, "declared_none");
     const actions = (await db.query("SELECT action FROM erp.audit_events WHERE action LIKE 'skills.%' ORDER BY id")).rows.map((r) => r.action);
-    for (const action of ["skills.platform.connect", "skills.platform.token", "skills.platform.refresh", "skills.platform.disconnect", "skills.onboarding.complete"])
+    for (const action of ["skills.platform.connect", "skills.platform.token", "skills.platform.refresh", "skills.platform.declare_none", "skills.onboarding.complete"])
       assert.ok(actions.includes(action), action);
   });
 
@@ -507,7 +538,15 @@ test("review fixes: single-token revoke, connect races and stale sync jobs", { t
       return { account: { username }, counts: { models: 1, datasets: 0, spaces: 0 }, top: { models: [], datasets: [], spaces: [] } };
     },
   };
-  const integrations = { github, huggingface };
+  // LeetCode is synced from public profile data; tests never reach leetcode.com.
+  const leetcode = {
+    calls: [],
+    async fetchProfile(username) {
+      this.calls.push(username);
+      return { account: { username }, realName: "Student A", solved: { all: 120, easy: 60, medium: 50, hard: 10 }, contest: null, tags: [{ slug: "array", name: "Array", solved: 40, level: "fundamental" }] };
+    },
+  };
+  const integrations = { github, huggingface, leetcode };
   const app = await buildApp({ pool: wrapped, env: ENV, logger: false, verify: async (token) => ({ id: users[token] }), integrations });
   t.after(() => app.close());
   const logs = [];
@@ -556,9 +595,12 @@ test("review fixes: single-token revoke, connect races and stale sync jobs", { t
     assert.equal(await storedToken(students.d), "ghu_rf_5");
   });
 
-  await t.test("disconnect revokes only the stored token", async () => {
-    assert.equal((await post("/student/skills/platforms/github", { action: "disconnect" })).statusCode, 200);
-    assert.deepEqual(revoked.slice(3), ["ghu_rf_2"]);
+  await t.test("disconnecting the required GitHub platform is refused and revokes nothing", async () => {
+    const response = await post("/student/skills/platforms/github", { action: "disconnect" });
+    assert.equal(response.statusCode, 409);
+    assert.equal(response.json().error.code, "REQUIRED_PLATFORM");
+    assert.deepEqual(revoked.slice(3), [], "nothing is revoked by a refused request");
+    assert.equal(await storedToken(students.c), "ghu_rf_2");
     assert.equal(await storedToken(students.d), "ghu_rf_5");
   });
 

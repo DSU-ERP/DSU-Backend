@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { buildApp } from "../src/app.js";
 import { testDatabase } from "./helpers/database.js";
+import { completeOnboarding } from "./helpers/onboarding.js";
 import {
   practiceQuestions,
   CATEGORIES,
@@ -32,10 +33,7 @@ test(
         [users[user], students[i]],
       );
       // Skills onboarding completed, so the dashboard is available.
-      await db.query(
-        "INSERT INTO student.skill_profiles(student_id,onboarding_version) VALUES($1,1)",
-        [students[i]],
-      );
+      await completeOnboarding(db, students[i]);
     }
     await db.query("INSERT INTO placement.officers(user_id) VALUES($1)", [
       users.officer,

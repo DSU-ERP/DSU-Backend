@@ -51,6 +51,20 @@ const required = [
   ["function", "placement", "skill_profile", null],
   ["function", "placement", "lookup_students", null],
   ["function", "placement", "skill_students", null],
+  // 202610270001_student_ranking.sql
+  ["column", "student", "github_repositories", "evidence"],
+  ["column", "student", "platform_accounts", "name_match"],
+  ["function", "student", "sync_student_name", null],
+  ["table", "ranking", "models", null],
+  ["table", "ranking", "scores", null],
+  ["table", "ranking", "topic_scores", null],
+  ["table", "ranking", "queue", null],
+  ["function", "ranking", "calculation_inputs", null],
+  ["function", "ranking", "request_recalculation", null],
+  ["function", "ranking", "request_full_recalculation", null],
+  ["function", "placement", "ranking_overview", null],
+  ["function", "placement", "ranking_list", null],
+  ["function", "placement", "ranking_student", null],
 ];
 
 const missingSql = `

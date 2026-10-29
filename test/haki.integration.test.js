@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { buildApp } from "../src/app.js";
 import { withActor } from "../src/integrations/supabase/db.js";
 import { testDatabase } from "./helpers/database.js";
+import { completeOnboarding } from "./helpers/onboarding.js";
 import { makePdf } from "./helpers/pdf.js";
 import { extractionResult, normalizeExtractedText } from "../src/modules/students/text-extraction.js";
 import { driveJobDescription, driveTitle } from "../src/modules/students/drive-match.js";
@@ -84,7 +85,7 @@ test("Observation Haki research, drive comparison, parsers, career history, dash
     );
     await db.query("INSERT INTO erp.academics(student_id,cgpa,current_backlog,attendance) VALUES($1,8.2,0,90)", [students[key]]);
     await db.query("INSERT INTO erp.memberships(user_id,role,student_id) VALUES($1,'student',$2)", [users[key], students[key]]);
-    await db.query("INSERT INTO student.skill_profiles(student_id,onboarding_version) VALUES($1,1)", [students[key]]);
+    await completeOnboarding(db, students[key]);
   }
   await db.query("INSERT INTO placement.officers(user_id) VALUES($1),($2)", [users.officer, users.officer2]);
 

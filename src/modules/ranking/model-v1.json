@@ -1,0 +1,26 @@
+{
+  "version": "developer-competency-v1-experimental",
+  "status": "experimental",
+  "label": "Developer competency v1 (provisional)",
+  "weights": { "academic": 0.5, "dsa": 0.3, "github": 0.2 },
+  "freshnessDays": 30,
+  "academic": { "scale": 10 },
+  "dsa": {
+    "easyCap": 150,
+    "difficulty": { "easy": 1, "medium": 3, "hard": 6 },
+    "volumeK": 300,
+    "advancedK": 150,
+    "mix": { "volume": 0.6, "advanced": 0.4 }
+  },
+  "github": {
+    "topWeights": [0.5, 0.3, 0.2],
+    "topShare": 0.95,
+    "breadthThreshold": 40,
+    "breadthPerRepo": 1,
+    "breadthMax": 5,
+    "minObservedShare": 0.7
+  },
+  "topics": { "dsaK": 20, "dsaMinSolved": 3 },
+  "eligibility": { "developer": "all_with_complete_fresh_evidence" },
+  "duplicateLeetCodeClaims": "exclude"
+}

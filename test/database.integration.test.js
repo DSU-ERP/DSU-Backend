@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { buildApp } from "../src/app.js";
 import { migrate } from "../src/platform/database/migrations.js";
 import { testDatabase } from "./helpers/database.js";
+import { completeOnboarding } from "./helpers/onboarding.js";
 
 test(
   "fresh migrations and backend authorization work with restricted roles",
@@ -43,10 +44,7 @@ test(
       users.officer,
     ]);
     // Student A has completed skills onboarding (dashboard and /session home).
-    await db.query(
-      "INSERT INTO student.skill_profiles(student_id,onboarding_version) VALUES($1,1)",
-      [studentA],
-    );
+    await completeOnboarding(db, studentA);
     const app = await buildApp({
       pool,
       env: { SERVICE_TOKEN: "x".repeat(32), RATE_LIMIT_USER_MAX: 100 },

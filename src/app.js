@@ -18,6 +18,7 @@ import { registerDriveIntakeRoutes } from "./modules/portal/drive-intake.js";
 import { createResearch } from "./modules/research/index.js";
 import { registerIntelligenceRoutes } from "./modules/intelligence/routes.js";
 import { registerCompetencyRoutes } from "./modules/competency/routes.js";
+import { registerRankingRoutes } from "./modules/ranking/routes.js";
 export { httpError, sameSecret, authVerifier };
 export async function buildApp({
   pool,
@@ -205,6 +206,7 @@ export async function buildApp({
     registerDriveIntakeRoutes(api, { pool, generate });
     registerOfficerTools(api, { pool, env, generate });
     registerIntelligenceRoutes(api, { pool, env, generate, integrations });
+    registerRankingRoutes(api, { pool });
     registerCompetencyRoutes(api, { pool, env, generate });
   };
   await app.register(registerRoutes, {

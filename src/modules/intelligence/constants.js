@@ -118,5 +118,12 @@ export const METRIC_LABELS = Object.freeze({
   "models.top": "Top models",
   "datasets.top": "Top datasets",
   "spaces.top": "Top spaces",
+  "problems.solved": "Problems solved",
+  "problems.easy": "Easy problems solved",
+  "problems.medium": "Medium problems solved",
+  "problems.hard": "Hard problems solved",
+  "contest.rating": "Contest rating",
+  "contest.attended": "Contests attended",
+  "topics.solved": "Problems solved by topic tag",
 });
 

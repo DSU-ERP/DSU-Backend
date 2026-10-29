@@ -3,6 +3,7 @@
 // Hugging Face public API, link-only platforms), manual refresh and featured
 // projects. GET /student/skills/profile and POST /student/skills/summary live in
 // profile-routes.js. Responses never include tokens, ciphers or OAuth state.
+import { nameMatch } from "./name-match.js";
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { httpError } from "../../platform/http/errors.js";
@@ -11,6 +12,7 @@ import { ONBOARDING_VERSION, PLATFORMS, REQUIRED_PLATFORMS, onboardingStatus } f
 import {
   ProviderError,
   SYNCABLE_AUTH,
+  SYNCABLE_PLATFORMS,
   normalizePlatformValue,
   validateSubmitted,
 } from "./platforms.js";
@@ -46,6 +48,8 @@ export function accountView(row, metrics = []) {
     syncStatus: row.sync_status,
     syncError: row.sync_error ?? null,
     lastSyncedAt: row.last_synced_at ?? null,
+    // LeetCode only: does the username or profile name match the student's official name?
+    nameMatch: row.name_match ?? null,
     submitted: row.submitted ?? {},
     metrics: metrics.map((m) => ({
       metric: m.metric,
@@ -96,13 +100,17 @@ const credentialAccess = (client) => client.query("SELECT set_config('app.creden
  *  The SQL function checks that the account belongs to the calling student. */
 const clearSyncedData = (client, account) =>
   client.query("SELECT student.clear_platform_data($1::uuid)", [account.id]);
+/** Queues the student's Students Ranking recalculation after a sharing or platform change. */
+const requestRanking = (client, studentId) => client.query("SELECT ranking.request_recalculation($1,'student')", [studentId]);
 /** Creates the profile row if needed and bumps its revision (any onboarding-relevant change). */
-const touchProfile = (client, studentId) =>
-  client.query(
+const touchProfile = async (client, studentId) => {
+  await client.query(
     `INSERT INTO student.skill_profiles(student_id) VALUES($1)
      ON CONFLICT (student_id) DO UPDATE SET revision=student.skill_profiles.revision+1,updated_at=now()`,
     [studentId],
   );
+  await requestRanking(client, studentId);
+};
 
 async function upsertAccount(client, studentId, platform, fields) {
   const { rows } = await client.query(
@@ -248,6 +256,7 @@ export function registerStudentSkillRoutes(api, { pool, env = {}, integrations }
             "UPDATE student.skill_profiles SET visibility=$2::jsonb,visibility_saved_at=now(),revision=revision+1,updated_at=now() WHERE student_id=$1",
             [sid, JSON.stringify(body.visibility)],
           );
+          await requestRanking(client, sid);
         } else {
           const accounts = (await client.query("SELECT platform,state FROM student.platform_accounts WHERE student_id=$1", [sid])).rows;
           const { missing } = onboardingStatus(profile, accounts);
@@ -259,6 +268,7 @@ export function registerStudentSkillRoutes(api, { pool, env = {}, integrations }
             [sid, ONBOARDING_VERSION, CONSENT_VERSION],
           );
           await audit(client, req.actor.id, "skills.onboarding.complete", sid);
+          await requestRanking(client, sid);
         }
       }
       return onboardingResponse(client, sid);
@@ -426,7 +436,7 @@ export function registerStudentSkillRoutes(api, { pool, env = {}, integrations }
           )
         ).rows[0];
       } else if (body.action === "link") {
-        const syncs = platform === "huggingface";
+        const syncs = SYNCABLE_PLATFORMS.includes(platform);
         if (existing && existing.handle !== normalized.handle) await clearSyncedData(client, existing);
         account = await upsertAccount(client, sid, platform, {
           state: "linked",
@@ -438,6 +448,14 @@ export function registerStudentSkillRoutes(api, { pool, env = {}, integrations }
           visible: body.visible,
           syncStatus: syncs ? "pending" : "not_applicable",
         });
+        if (platform === "leetcode") {
+          const match = nameMatch(official.full_name, { username: normalized.handle });
+          account = (
+            await client.query("UPDATE student.platform_accounts SET name_match=$2,name_match_source=$3 WHERE id=$1 RETURNING *", [
+              account.id, match.status, match.source,
+            ])
+          ).rows[0];
+        }
         if (syncs) await enqueue(client, account, "connect");
         await audit(client, req.actor.id, "skills.platform.connect", account.id);
       } else {

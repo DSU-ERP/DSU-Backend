@@ -40,7 +40,7 @@ async function setup() {
 
   // Skills profile: onboarding complete, everything shared.
   await db.query(`INSERT INTO student.skill_profiles(student_id,onboarding_version,onboarding_completed_at,identity_confirmed_at,visibility_saved_at,consent_version,consented_at,revision)
-    VALUES($1,1,now(),now(),now(),1,now(),4)`, [ids.T01]);
+    VALUES($1,student.onboarding_current_version(),now(),now(),now(),1,now(),4)`, [ids.T01]);
   const gh = randomUUID(), lc = randomUUID();
   await db.query(`INSERT INTO student.platform_accounts(id,student_id,platform,state,handle,profile_url,auth_method,ownership,external_id,sync_status,last_synced_at)
     VALUES($1,$2,'github','linked','asha-dev','https://github.com/asha-dev','github_app','platform_verified','101','completed',now())`, [gh, ids.T01]);

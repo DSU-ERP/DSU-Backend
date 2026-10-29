@@ -5,6 +5,7 @@
 // Never log or store tokens, ciphers or provider payloads in logs.
 import { isPendingMigration } from "../../platform/http/errors.js";
 import { ProviderError, SYNCABLE_AUTH } from "./platforms.js";
+import { nameMatch } from "./name-match.js";
 import {
   LANGUAGE_NOTE,
   LINES_NOTE,
@@ -75,27 +76,36 @@ async function expireLeases(client) {
     );
 }
 
-/** Claims up to `limit` due jobs (and expired leases) with SKIP LOCKED. */
-export async function claimJobs(pool, limit) {
+/**
+ * Claims up to `limit` due jobs (and expired leases) with SKIP LOCKED.
+ * `platform` claims only that platform; `exceptPlatform` leaves one out (LeetCode
+ * jobs are claimed together so their requests can be batched).
+ */
+export async function claimJobs(pool, limit, { platform = null, exceptPlatform = null } = {}) {
   if (limit < 1) return [];
   return workerTransaction(pool, async (client) => {
     await expireLeases(client);
     const { rows } = await client.query(
       `WITH due AS (
          SELECT id FROM student.sync_jobs
-         WHERE (status='pending' AND run_after<=now()) OR (status='running' AND leased_until<now())
+         WHERE ((status='pending' AND run_after<=now()) OR (status='running' AND leased_until<now()))
+           AND ($2::text IS NULL OR platform=$2) AND ($3::text IS NULL OR platform<>$3)
          ORDER BY run_after, id LIMIT $1 FOR UPDATE SKIP LOCKED)
        UPDATE student.sync_jobs j SET status='running',leased_until=now()+interval '${LEASE}',
          attempts=j.attempts+1,updated_at=now()
        FROM due WHERE j.id=due.id
        RETURNING j.id,j.account_id,j.student_id,j.platform,j.reason,j.attempts,j.max_attempts`,
-      [limit],
+      [limit, platform, exceptPlatform],
     );
     return rows;
   });
 }
 
-/** Enqueues 'scheduled' jobs for linked syncable accounts older than intervalHours. */
+/**
+ * Enqueues 'scheduled' jobs for linked syncable accounts older than intervalHours,
+ * and once for GitHub accounts synced before repository evidence and organisation
+ * repositories were collected.
+ */
 export async function enqueueScheduled(pool, intervalHours) {
   return workerTransaction(pool, async (client) => {
     const { rows } = await client.query(
@@ -103,7 +113,11 @@ export async function enqueueScheduled(pool, intervalHours) {
        SELECT a.id,a.student_id,a.platform,'scheduled' FROM student.platform_accounts a
        WHERE a.state='linked' AND a.auth_method=ANY($2::text[])
          AND coalesce(a.sync_error,'')<>'CREDENTIAL_INVALID'
-         AND (a.last_synced_at IS NULL OR a.last_synced_at<now()-make_interval(hours=>$1))
+         AND (a.last_synced_at IS NULL OR a.last_synced_at<now()-make_interval(hours=>$1)
+           -- Backfill: GitHub accounts last synced before structural evidence and
+           -- organisation repositories were collected (their snapshots lack the marker).
+           OR (a.platform='github' AND NOT EXISTS(SELECT 1 FROM student.platform_snapshots s
+             WHERE s.account_id=a.id AND s.payload ? 'organizationRepositoryIds')))
          AND NOT EXISTS(SELECT 1 FROM student.sync_jobs j WHERE j.account_id=a.id
            AND (j.status IN ('pending','running') OR (j.status='failed' AND j.updated_at>now()-make_interval(hours=>$1))))
        ORDER BY a.last_synced_at NULLS FIRST LIMIT 200
@@ -190,7 +204,8 @@ export function githubResult(payload, now = Date.now()) {
   ];
   const pinOrder = new Map(payload.pinned.map((r, i) => [r.id, i + 1]));
   const byId = new Map();
-  for (const repo of [...payload.repositories, ...payload.pinned]) if (!byId.has(repo.id)) byId.set(repo.id, repo);
+  for (const repo of [...payload.repositories, ...payload.pinned, ...(payload.organizationRepositories || [])])
+    if (!byId.has(repo.id)) byId.set(repo.id, repo);
   const repositories = [...byId.values()].map((repo) => {
     const { score, reasons } = scoreRepository(repo, now);
     return {
@@ -218,6 +233,7 @@ export function githubResult(payload, now = Date.now()) {
       recommendation_score: score,
       recommendation_reasons: reasons,
       additions_52w: payload.additions?.[repo.id] ?? null,
+      evidence: { ...(repo.evidence || { observed: false }), stats: payload.shares?.[repo.id] ?? null },
     };
   });
   const status = lines.pending > 0 || lines.counted < lines.eligible ? "partial" : "completed";
@@ -227,7 +243,7 @@ export function githubResult(payload, now = Date.now()) {
     handle: payload.account.login,
     profileUrl: payload.account.url,
     externalId: String(payload.account.id),
-    retryStats: lines.pending > 0,
+    retryStats: lines.pending > 0 || payload.organizationStatsPending > 0,
     metrics,
     repositories,
     snapshot: {
@@ -236,12 +252,30 @@ export function githubResult(payload, now = Date.now()) {
       originalRepos: payload.originalRepos,
       repositoryIds: repositories.map((r) => r.repo_id),
       pinnedIds: payload.pinned.map((r) => r.id),
+      organizationRepositoryIds: (payload.organizationRepositories || []).map((r) => r.id),
       contributions: { total: payload.calendar.total, commits: payload.calendar.commits },
       streaks,
       linesAdded: lines,
       rankingNote: RANKING_NOTE,
     },
   };
+}
+
+export function leetCodeResult(payload) {
+  const method = "leetcode_public_graphql";
+  const note = "From LeetCode's public profile data for the linked username. Account ownership is student-submitted.";
+  const metrics = [];
+  for (const [key, value] of Object.entries(payload.solved))
+    if (value !== null) metrics.push(metric(key === "all" ? "problems.solved" : `problems.${key}`, value, { method, note }));
+  if (payload.contest) {
+    metrics.push(metric("contest.rating", payload.contest.rating, { method, note }));
+    metrics.push(metric("contest.attended", payload.contest.attended, { method, note }));
+  }
+  metrics.push(metric("topics.solved", payload.tags, { method, note: note + " Problems carry several tags, so topic counts overlap." }));
+  const complete = ["easy", "medium", "hard"].every((k) => payload.solved[k] !== null);
+  // The profile name is used only for the name check; it is not stored.
+  const { realName, ...snapshot } = payload;
+  return { status: complete ? "completed" : "partial", method, metrics, repositories: null, snapshot, identity: { realName } };
 }
 
 export function huggingFaceResult(payload) {
@@ -261,7 +295,7 @@ export function huggingFaceResult(payload) {
 const REPO_COLUMNS = `repo_id bigint,full_name text,name text,url text,description text,primary_language text,languages jsonb,
   topics jsonb,stars integer,forks integer,is_fork boolean,is_archived boolean,has_readme boolean,readme_bytes integer,license text,
   homepage text,pushed_at timestamptz,repo_updated_at timestamptz,owner_login text,pinned boolean,pin_order integer,
-  recommendation_score integer,recommendation_reasons jsonb,additions_52w integer`;
+  recommendation_score integer,recommendation_reasons jsonb,additions_52w integer,evidence jsonb`;
 const REPO_NAMES = REPO_COLUMNS.split(",").map((c) => c.trim().split(" ")[0]);
 const REPO_SET = REPO_NAMES.filter((c) => c !== "repo_id")
   .map((c) => `${c}=EXCLUDED.${c}`)
@@ -313,6 +347,14 @@ export async function writeResult(client, job, account, result) {
     "UPDATE student.sync_jobs SET status=$2,leased_until=NULL,last_error=NULL,updated_at=now() WHERE id=$1",
     [job.id, result.status],
   );
+  // LeetCode name check: the username and the LeetCode profile name against the official name.
+  if (result.identity) {
+    const name = (await client.query("SELECT student.sync_student_name($1) AS name", [account.id])).rows[0]?.name;
+    const match = nameMatch(name, { username: account.handle, realName: result.identity.realName });
+    await client.query("UPDATE student.platform_accounts SET name_match=$2,name_match_source=$3 WHERE id=$1", [account.id, match.status, match.source]);
+  }
+  // New evidence: queue this student's ranking recalculation (same transaction).
+  await client.query("SELECT ranking.request_recalculation($1,'sync')", [account.student_id]);
   // GitHub computes contributor statistics lazily (202): look again shortly, once.
   if (result.retryStats && job.reason !== "retry") await enqueue(client, account, "retry", { delaySeconds: 300 });
   return snapshot;
@@ -388,7 +430,7 @@ export async function recordFailure(pool, job, error, now = Date.now(), ran = nu
 }
 
 /**
- * Runs one claimed job end to end. ctx: {pool, secrets, github, huggingface, now, log}.
+ * Runs one claimed job end to end. ctx: {pool, secrets, github, leetcode, huggingface, now, log}.
  * Returns the final job status.
  */
 export async function runJob(ctx, job) {
@@ -421,6 +463,9 @@ export async function runJob(ctx, job) {
       const token = await githubAccessToken({ ...ctx, now }, account);
       const payload = await ctx.github.fetchProfile(token, { login: account.handle, externalId: account.external_id });
       result = githubResult(payload, now());
+    } else if (account.platform === "leetcode") {
+      if (!ctx.leetcode) throw new ProviderError("PROVIDER_UNAVAILABLE", "LeetCode is not configured.");
+      result = leetCodeResult(await ctx.leetcode.fetchProfile(account.handle));
     } else if (account.platform === "huggingface") {
       if (!ctx.huggingface) throw new ProviderError("PROVIDER_UNAVAILABLE", "Hugging Face is not configured.");
       result = huggingFaceResult(await ctx.huggingface.fetchProfile(account.handle));
