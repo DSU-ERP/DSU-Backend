@@ -43,31 +43,61 @@ export function createPool(url, env = process.env) {
   return pool;
 }
 
+/**
+ * Checks out a client and keeps an error listener on it while it is in use.
+ * pg-pool removes its own listener during checkout, so a connection reset
+ * (read ECONNRESET from Supabase or the network) would otherwise be an
+ * unhandled 'error' event and stop the whole server. A broken connection is
+ * released with its error, which makes the pool discard it instead of reusing it.
+ * fn receives the client and discard(error) to mark the connection unusable.
+ */
+export async function useClient(pool, fn) {
+  const client = await pool.connect();
+  let broken = null;
+  const discard = (error) => {
+    broken ??= error || new Error("Database connection discarded");
+  };
+  const onError = (error) => {
+    discard(error);
+    console.error(
+      JSON.stringify({ event: "database_connection_error", code: error?.code || "DATABASE_ERROR" }),
+    );
+  };
+  client.on?.("error", onError);
+  try {
+    return await fn(client, discard);
+  } finally {
+    client.removeListener?.("error", onError);
+    client.release(broken ?? undefined);
+  }
+}
+
 export async function withActor(
   pool,
   actorId,
   fn,
   { repeatableRead = false } = {},
 ) {
-  const client = await pool.connect();
-  try {
-    await client.query(
-      repeatableRead ? "BEGIN ISOLATION LEVEL REPEATABLE READ" : "BEGIN",
-    );
-    // Both settings belong to the same transaction. One statement avoids a
-    // network round trip for every authenticated read/write without changing
-    // row-security scope or persisting either setting on a pooled connection.
-    await client.query(
-      "SELECT set_config('app.user_id', $1, true), set_config('request.jwt.claims', $2, true)",
-      [actorId, JSON.stringify({sub:actorId,role:'authenticated'})],
-    );
-    const result = await fn(client);
-    await client.query("COMMIT");
-    return result;
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+  return useClient(pool, async (client, discard) => {
+    try {
+      await client.query(
+        repeatableRead ? "BEGIN ISOLATION LEVEL REPEATABLE READ" : "BEGIN",
+      );
+      // Both settings belong to the same transaction. One statement avoids a
+      // network round trip for every authenticated read/write without changing
+      // row-security scope or persisting either setting on a pooled connection.
+      await client.query(
+        "SELECT set_config('app.user_id', $1, true), set_config('request.jwt.claims', $2, true)",
+        [actorId, JSON.stringify({sub:actorId,role:'authenticated'})],
+      );
+      const result = await fn(client);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      // A rollback that cannot run (the connection is gone) must not hide the
+      // original error, and that connection must never return to the pool.
+      await client.query("ROLLBACK").catch(discard);
+      throw error;
+    }
+  });
 }

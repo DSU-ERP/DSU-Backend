@@ -4,6 +4,7 @@
 // the credential so exactly one refresh (and rotation) happens at a time.
 // Never log or store tokens, ciphers or provider payloads in logs.
 import { isPendingMigration } from "../../platform/http/errors.js";
+import { useClient } from "../../integrations/supabase/db.js";
 import { ProviderError, SYNCABLE_AUTH } from "./platforms.js";
 import { nameMatch } from "./name-match.js";
 import {
@@ -29,23 +30,24 @@ export const oauthStateAad = (stateHash) => `oauth_states:${stateHash}`;
 
 /** Worker transaction: app.sync_worker='on' (and optionally credential access), no actor. */
 export async function workerTransaction(pool, fn, { credentials = false } = {}) {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    await client.query(
-      credentials
-        ? "SELECT set_config('app.sync_worker','on',true), set_config('app.credential_access','on',true)"
-        : "SELECT set_config('app.sync_worker','on',true)",
-    );
-    const result = await fn(client);
-    await client.query("COMMIT");
-    return result;
-  } catch (error) {
-    await client.query("ROLLBACK").catch(() => {});
-    throw error;
-  } finally {
-    client.release();
-  }
+  // useClient keeps an error listener on the checked-out connection, so a
+  // connection reset fails this job instead of stopping the server.
+  return useClient(pool, async (client, discard) => {
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        credentials
+          ? "SELECT set_config('app.sync_worker','on',true), set_config('app.credential_access','on',true)"
+          : "SELECT set_config('app.sync_worker','on',true)",
+      );
+      const result = await fn(client);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(discard);
+      throw error;
+    }
+  });
 }
 
 /**
