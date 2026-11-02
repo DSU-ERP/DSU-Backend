@@ -35,6 +35,8 @@
     "placement:import": "node --env-file-if-exists=.env --env-file-if-exists=.env.operator scripts/import-placement-records.js",
     "verify:placement-imports": "node --env-file-if-exists=.env --env-file-if-exists=.env.operator scripts/verify-placement-imports.js",
     "verify:friday-rename": "node --env-file-if-exists=.env --env-file-if-exists=.env.operator scripts/verify-friday-rename.js",
+    "access:admin": "node --env-file-if-exists=.env --env-file-if-exists=.env.operator scripts/grant-admin.js",
+    "storage:buckets": "node --env-file-if-exists=.env scripts/create-storage-buckets.js",
     "dev:provision-student": "node scripts/provision-dev-student.js"
   },
   "dependencies": {

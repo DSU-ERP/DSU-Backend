@@ -734,7 +734,7 @@ test(
         await request("/student/opportunities/" + hidden, undefined, "a", 404);
         const registration = await request(
           "/student/opportunities/" + drive + "/apply",
-          { confirmed: true },
+          { confirmed: true, consent: true },
         );
         assert.equal(registration.status, "registered");
         assert.equal(

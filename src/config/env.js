@@ -79,6 +79,9 @@ const schema = z
     GITHUB_APP_CLIENT_SECRET: blank(z.string().max(200).optional()),
     GITHUB_APP_SLUG: blank(z.string().regex(/^[a-z0-9-]{1,100}$/).optional()),
     GITHUB_OAUTH_REDIRECT_URL: blank(z.string().url().optional()),
+    // Server-side only: private Storage uploads and short-lived signed links
+    // for company JD PDFs and student resumes. File features stay off without it.
+    SUPABASE_SERVICE_ROLE_KEY: blank(z.string().min(20).max(2000).optional()),
     SYNC_WORKER: blank(z.enum(["on", "off"]).default("on")),
     SYNC_WORKER_CONCURRENCY: blank(z.coerce.number().int().min(1).max(4).default(2)),
     SYNC_INTERVAL_HOURS: blank(z.coerce.number().int().min(1).max(168).default(24)),

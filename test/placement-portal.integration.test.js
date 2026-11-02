@@ -46,7 +46,7 @@ test("company details, hiring targets, round tracking and student track records"
 
   // 3. Students apply (their response), officer runs rounds and makes an offer.
   for (const who of ["student", "other"]) {
-    const applied = await app.inject({ method: "POST", url: "/api/v1/student/opportunities/" + drive.id + "/apply", headers: { authorization: "Bearer " + who }, payload: { confirmed: true } });
+    const applied = await app.inject({ method: "POST", url: "/api/v1/student/opportunities/" + drive.id + "/apply", headers: { authorization: "Bearer " + who }, payload: { confirmed: true, consent: true } });
     assert.equal(applied.statusCode, 200, applied.body);
   }
   const regs = (await db.query("SELECT id,student_id FROM placement.registrations WHERE drive_id=$1", [drive.id])).rows;

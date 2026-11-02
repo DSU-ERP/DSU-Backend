@@ -46,7 +46,7 @@ test("publishing a drive notifies only students who meet every criterion", { tim
   const live = (await act("drive.save", { ...fields, id: draft.id, revision: draft.revision, published: true })).json().data;
   assert.deepEqual(await notified(), ["edge", "top"]);
   const note = (await db.query("SELECT title,body FROM student.notifications WHERE user_id=$1", [users.top])).rows[0];
-  assert.match(note.title, /New drive for you: Acme — Graduate engineer/);
+  assert.match(note.title, /New drive for you: Acme, Graduate engineer/);
   assert.match(note.body, /You meet the eligibility criteria/);
 
   // Saving again does not repeat; relaxing CGPA reaches only the newly eligible student.

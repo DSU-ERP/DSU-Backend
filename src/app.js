@@ -19,6 +19,12 @@ import { createResearch } from "./modules/research/index.js";
 import { registerIntelligenceRoutes } from "./modules/intelligence/routes.js";
 import { registerCompetencyRoutes } from "./modules/competency/routes.js";
 import { registerRankingRoutes } from "./modules/ranking/routes.js";
+import { registerCompanyRoutes } from "./modules/company/routes.js";
+import { registerCompanyOfficerRoutes } from "./modules/company/officer-routes.js";
+import { createStorage } from "./modules/files/storage.js";
+import { registerNotificationRoutes } from "./modules/notifications/routes.js";
+import { registerCompanyFriday } from "./modules/company/friday.js";
+import { registerOpsRoutes } from "./modules/ops/routes.js";
 export { httpError, sameSecret, authVerifier };
 export async function buildApp({
   pool,
@@ -30,6 +36,8 @@ export async function buildApp({
   research = createResearch({ env }),
   // Provider clients for platform sync (GitHub, Hugging Face). Tests inject fakes.
   integrations,
+  // Private file storage (Supabase Storage). Tests inject a fake.
+  storage = createStorage(env),
 }) {
   if (!env.SERVICE_TOKEN || env.SERVICE_TOKEN.length < 32)
     throw new Error("SERVICE_TOKEN must contain at least 32 characters");
@@ -202,11 +210,16 @@ export async function buildApp({
     registerRegistrationRoutes(api, {pool});
     registerCampusRoutes(api, { pool });
     registerPortalRoutes(api, { pool });
-    registerStudentRoutes(api, { pool, generate, env, research });
+    registerStudentRoutes(api, { pool, generate, env, research, storage });
     registerDriveIntakeRoutes(api, { pool, generate });
     registerOfficerTools(api, { pool, env, generate });
     registerIntelligenceRoutes(api, { pool, env, generate, integrations });
     registerRankingRoutes(api, { pool });
+    registerCompanyRoutes(api, { pool, storage, generate });
+    registerCompanyOfficerRoutes(api, { pool });
+    registerNotificationRoutes(api, { pool });
+    registerCompanyFriday(api, { pool, generate });
+    registerOpsRoutes(api, { pool });
     registerCompetencyRoutes(api, { pool, env, generate });
   };
   await app.register(registerRoutes, {

@@ -9,10 +9,10 @@ import { registerDashboardRoutes } from "./dashboard.js";
 import { registerProfileRoutes } from "./profile.js";
 import { withActor } from "../../integrations/supabase/db.js";
 import { httpError, databaseError } from "../../platform/http/errors.js";
-export function registerStudentRoutes(api, { pool, generate, env, research }) {
+export function registerStudentRoutes(api, { pool, generate, env, research, storage }) {
   registerDashboardRoutes(api, { pool, generate });
   registerCareerRoutes(api, { pool, generate });
-  registerDocumentRoutes(api, { pool, generate });
+  registerDocumentRoutes(api, { pool, generate, storage });
   registerOpportunityRoutes(api, { pool, generate });
   registerCalendarRoutes(api, { pool, generate });
   registerChatRoutes(api, { pool, generate, research, env });

@@ -358,7 +358,7 @@ test("Observation Haki research, drive comparison, parsers, career history, dash
     assert.equal(counts[campusDay(5 * 86400000)], 1); // applications are not preparation activity
     assert.deepEqual(dashboard.activityDates, dashboard.activity.map((row) => row.day));
     assert.deepEqual(dashboard.pipeline, { registered: 0, inProgress: 0, selected: 0, placed: 0, rejected: 0, total: 0 });
-    await data(`/student/opportunities/${drive.id}/apply`, { confirmed: true });
+    await data(`/student/opportunities/${drive.id}/apply`, { confirmed: true, consent: true });
     assert.equal((await data("/student/dashboard")).pipeline.registered, 1);
     await db.query("UPDATE placement.registrations SET status='placed' WHERE drive_id=$1", [drive.id]);
     assert.deepEqual((await data("/student/dashboard")).pipeline, { registered: 0, inProgress: 0, selected: 0, placed: 1, rejected: 0, total: 1 });

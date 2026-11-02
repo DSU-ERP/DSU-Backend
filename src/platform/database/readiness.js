@@ -65,6 +65,35 @@ const required = [
   ["function", "placement", "ranking_overview", null],
   ["function", "placement", "ranking_list", null],
   ["function", "placement", "ranking_student", null],
+  // 202611010001_company_portal.sql
+  ["table", "company", "members", null],
+  ["table", "company", "invites", null],
+  ["table", "company", "drive_requests", null],
+  ["table", "files", "objects", null],
+  ["table", "placement", "drive_audience", null],
+  ["column", "placement", "drives", "audience_mode"],
+  ["column", "placement", "registrations", "consent_at"],
+  ["column", "student", "documents", "file_id"],
+  ["function", "company", "is_member", null],
+  ["function", "company", "session", null],
+  ["function", "company", "accept_invite", null],
+  ["function", "files", "can_read", null],
+  ["function", "placement", "review_request", null],
+  ["function", "placement", "audience_preview", null],
+  ["function", "student", "apply_to_drive", null],
+  // 202611010002_notifications.sql
+  ["table", "erp", "notifications", null],
+  ["function", "erp", "notify_officers", null],
+  // 202611010003_company_friday.sql
+  ["table", "company", "conversations", null],
+  ["table", "company", "messages", null],
+  // 202611020001_agent_traces.sql
+  ["table", "ops", "admins", null],
+  ["table", "ops", "agent_runs", null],
+  ["table", "ops", "agent_steps", null],
+  ["function", "ops", "is_admin", null],
+  ["function", "ops", "trace_start", null],
+  ["function", "ops", "agent_runs_list", null],
 ];
 
 const missingSql = `

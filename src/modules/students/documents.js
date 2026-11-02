@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import { runStudent } from "./context.js";
 import { httpError } from "../../platform/http/errors.js";
+import { readPdf, storePdf } from "../files/storage.js";
 export const UPLOAD_LIMIT_BYTES = 10 * 1024 * 1024;
 let active = 0;
 
@@ -94,7 +95,18 @@ export async function extractDocument(filename, buffer) {
   }
 }
 
-export function registerDocumentRoutes(api, { pool }) {
+export function registerDocumentRoutes(api, { pool, storage }) {
+  // Resume PDFs the student can attach to applications (newest first).
+  api.get("/student/resumes", async (req) =>
+    runStudent(pool, req.actor.id, async (client) => {
+      const { rows } = await client.query(
+        `SELECT d.id AS document_id,f.id,f.filename,f.size,f.created_at FROM student.documents d
+         JOIN files.objects f ON f.id=d.file_id WHERE d.user_id=$1 AND d.kind='resume' ORDER BY f.created_at DESC,f.id LIMIT 20`,
+        [req.actor.id],
+      );
+      return { data: { rows, storage: Boolean(storage?.configured) } };
+    }),
+  );
   api.get("/student/documents", async (req) =>
     runStudent(pool, req.actor.id, async (client) => {
       const { rows } = await client.query(
@@ -144,9 +156,9 @@ export function registerDocumentRoutes(api, { pool }) {
         truncated: extracted.truncated,
         lowText: extracted.lowText,
       };
-      return runStudent(pool, req.actor.id, async (client) => {
-        const { rows } = await client.query(
-          "INSERT INTO student.documents(user_id,filename,kind,content,sha256,meta) VALUES($1,$2,$3,$4,$5,$6) RETURNING id,filename,kind,content,created_at",
+      const insert = (client, fileId = null) =>
+        client.query(
+          "INSERT INTO student.documents(user_id,filename,kind,content,sha256,meta,file_id) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id,filename,kind,content,created_at,file_id",
           [
             req.actor.id,
             input.filename,
@@ -154,8 +166,27 @@ export function registerDocumentRoutes(api, { pool }) {
             extracted.content,
             createHash("sha256").update(buffer).digest("hex"),
             JSON.stringify(meta),
+            fileId,
           ],
         );
+      // A resume PDF is also kept as a file so it can be attached to
+      // applications. Without storage configured, only the text is saved.
+      if (input.kind === "resume" && /\.pdf$/i.test(input.filename) && storage?.configured) {
+        const file = readPdf(input.filename, input.data);
+        const official = await runStudent(pool, req.actor.id, async (_client, student) => student);
+        return storePdf(storage, { bucket: "resumes", kind: "student", ownerId: official.id, file }, (stored) =>
+          runStudent(pool, req.actor.id, async (client) => {
+            await client.query(
+              "INSERT INTO files.objects(id,bucket,path,filename,mime,size,sha256,owner_kind,student_id,uploaded_by) VALUES($1,'resumes',$2,$3,'application/pdf',$4,$5,'student',$6,$7)",
+              [stored.id, stored.path, stored.filename, stored.size, stored.sha256, official.id, req.actor.id],
+            );
+            const { rows } = await insert(client, stored.id);
+            return { data: { ...rows[0], ...meta, file: { id: stored.id, filename: stored.filename, size: stored.size } } };
+          }),
+        );
+      }
+      return runStudent(pool, req.actor.id, async (client) => {
+        const { rows } = await insert(client);
         return { data: { ...rows[0], ...meta } };
       });
     },
