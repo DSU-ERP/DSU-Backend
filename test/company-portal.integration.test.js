@@ -240,6 +240,21 @@ test("company portal: invites, isolation, review, audience, consent and results"
     assert.equal(saved.audience, 4, "C01, C02, C04 by rule plus C03 added");
     assert.equal(saved.notified, 1, "only the newly reached linked student (C04) is notified");
     assert.equal((await ok("GET", "/student/opportunities", "s4")).rows.length, 1);
+    // Adding by hand someone the filters already include counts them once and saves.
+    const overlap = { batches: ["2027"], branches: ["CSE", "ECE"], min_cgpa: 8, max_backlogs: 0, add: [ids.C01, ids.C03] };
+    const preview = await ok("POST", "/placement/audience/preview", "officer", { spec: overlap });
+    assert.deepEqual([preview.total, preview.added, preview.rows.length], [4, 1, 4]);
+    assert.equal((await ok("POST", `/placement/drives/${driveA}/audience`, "officer", overlap)).audience, 4);
+    // Selected students only: the filters are ignored, even across batches.
+    const picked = { mode: "selected", batches: ["2027"], branches: ["CSE"], min_cgpa: 9, add: [ids.C04, ids.C05] };
+    const pickedPreview = await ok("POST", "/placement/audience/preview", "officer", { spec: picked });
+    assert.deepEqual(pickedPreview.rows.map((r) => r.usn), ["C04", "C05"]);
+    assert.deepEqual([pickedPreview.spec.mode, pickedPreview.spec.branches, pickedPreview.spec.min_cgpa], ["selected", [], null]);
+    assert.equal((await ok("POST", `/placement/drives/${driveA}/audience`, "officer", picked)).audience, 2);
+    const state = await ok("GET", `/placement/drives/${driveA}/audience`, "officer");
+    assert.deepEqual([state.size, state.rules.selected_only, state.changes.add.sort()], [2, true, [ids.C04, ids.C05].sort()]);
+    await fails(400, "POST", `/placement/drives/${driveA}/audience`, "officer", { mode: "selected", add: [] }, /Select at least one student/);
+    await fails(400, "POST", `/placement/drives/${driveA}/audience`, "officer", { add: [ids.C04] }, /graduating batches/);
     await ok("POST", `/placement/company-members/${users.hrA}/revoke`, "officer", {});
     await fails(403, "GET", "/company/drives", "hrA");
     const session = await app.inject({ url: "/api/v1/session", headers: { authorization: "Bearer hrA" } });

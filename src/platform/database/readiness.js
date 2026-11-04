@@ -94,6 +94,8 @@ const required = [
   ["function", "ops", "is_admin", null],
   ["function", "ops", "trace_start", null],
   ["function", "ops", "agent_runs_list", null],
+  // 202611040001_audience_selected.sql
+  ["column", "placement", "drive_audience_rules", "selected_only"],
 ];
 
 const missingSql = `

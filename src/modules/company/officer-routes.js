@@ -9,7 +9,9 @@ const year = z.string().regex(/^20\d{2}$/);
 const limit = (max) => z.union([z.number().min(0).max(max), z.literal(""), z.null()]);
 export const audienceSchema = z
   .object({
-    batches: z.array(year).min(1).max(10),
+    // "selected": only the students in `add`; the filters are ignored.
+    mode: z.enum(["rules", "selected"]).optional(),
+    batches: z.array(year).max(10).default([]),
     branches: z.array(z.string().trim().min(1).max(100)).max(100).default([]),
     min_cgpa: limit(10).optional(),
     max_backlogs: z.union([z.number().int().min(0).max(100), z.literal(""), z.null()]).optional(),
