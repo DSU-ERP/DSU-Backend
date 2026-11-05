@@ -27,7 +27,10 @@ export function createPool(url, env = process.env) {
       : false,
     max: Number(env.DATABASE_POOL_MAX || 5),
     connectionTimeoutMillis: Number(env.DATABASE_CONNECTION_TIMEOUT_MS || 5000),
-    idleTimeoutMillis: 30000,
+    // The database is in another region (Seoul) from the API (Singapore), so a
+    // new TLS connection costs several round trips. Keep idle ones for 5 minutes
+    // so bursts of page loads reuse them instead of reconnecting.
+    idleTimeoutMillis: Number(env.DATABASE_IDLE_TIMEOUT_MS || 300000),
     statement_timeout: Number(env.DATABASE_STATEMENT_TIMEOUT_MS || 15000),
     query_timeout: Number(env.DATABASE_QUERY_TIMEOUT_MS || 20000),
     application_name: "dsu-backend",

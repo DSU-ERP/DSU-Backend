@@ -71,3 +71,44 @@ test("publishing a drive notifies only students who meet every criterion", { tim
     { min_cgpa: "8", max_backlogs: 0, min_attendance: "75", branches: [], package_lpa: "8", published: true, status: "upcoming", registration_deadline: null }, 0, "2026-10-19").gaps;
   assert.deepEqual(gaps, ["Requires attendance of 75% or above."]);
 });
+
+test("a hand-picked audience keeps the drive's batch and publishing notifies only the picked students", { timeout: 120000 }, async (t) => {
+  const { db, pool } = await testDatabase();
+  const officer = randomUUID();
+  await db.query("INSERT INTO auth.users(id) VALUES($1)", [officer]);
+  await db.query("INSERT INTO placement.officers(user_id) VALUES($1)", [officer]);
+  const users = {};
+  const ids = {};
+  for (const [key, batch] of [["a", "2026"], ["b", "2026"], ["c", "2026"], ["picked", "2027"]]) {
+    ids[key] = randomUUID();
+    users[key] = randomUUID();
+    await db.query("INSERT INTO erp.students(id,enrollment_no,full_name,source_batch,source_hash,department_short_name) VALUES($1,$2,$3,$4,'h','CSE')", [ids[key], "USN-" + key, "Student " + key, batch]);
+    await db.query("INSERT INTO erp.academics(student_id,cgpa,current_backlog,attendance) VALUES($1,9,0,95)", [ids[key]]);
+    await db.query("INSERT INTO auth.users(id,email,email_confirmed_at) VALUES($1,$2,now())", [users[key], key + "@x.invalid"]);
+    await db.query("INSERT INTO erp.memberships(user_id,role,student_id) VALUES($1,'student',$2)", [users[key], ids[key]]);
+  }
+  const app = await buildApp({ pool, logger: false, env: { SERVICE_TOKEN: "x".repeat(32), RATE_LIMIT_USER_MAX: 1000 }, verify: async () => ({ id: officer }) });
+  t.after(() => app.close());
+  const act = (action, payload) => app.inject({ method: "POST", url: "/api/v1/placement/actions/" + action, headers: { authorization: "Bearer o" }, payload: { payload, requestId: randomUUID() } });
+  const notified = async () => (await db.query("SELECT u.email FROM student.notifications n JOIN auth.users u ON u.id=n.user_id WHERE n.href LIKE '/student/placement?drive=%' ORDER BY 1")).rows.map((r) => r.email.split("@")[0]);
+  const company = (await act("company.save", { name: "Acme" })).json().data;
+  const fields = { company_id: company.id, title: "QA drive", package_lpa: "6", academic_year: "2025-26", batch: "2026", min_cgpa: "0", max_backlogs: "100", branches: [], rounds: ["Online test"] };
+  const draft = (await act("drive.save", { ...fields, published: false })).json().data;
+
+  const saved = await app.inject({ method: "POST", url: `/api/v1/placement/drives/${draft.id}/audience`, headers: { authorization: "Bearer o" },
+    payload: { mode: "selected", add: [ids.picked] } });
+  assert.equal(saved.statusCode, 200, saved.body);
+  assert.deepEqual(saved.json().data, { audience: 1, notified: 0 }, "an unpublished drive notifies nobody");
+  const drive = (await db.query("SELECT batch,min_cgpa,max_backlogs,branches,audience_mode,published FROM placement.drives WHERE id=$1", [draft.id])).rows[0];
+  assert.deepEqual([drive.batch, Number(drive.min_cgpa), drive.max_backlogs, drive.branches, drive.audience_mode, drive.published],
+    ["2026", 0, 100, [], true, false], "the drive's batch and eligibility fields are unchanged");
+
+  // Publishing from the drive form (which resends batch 2026 and open filters)
+  // reaches only the hand-picked student, never the three matching 2026 students.
+  const current = (await db.query("SELECT revision FROM placement.drives WHERE id=$1", [draft.id])).rows[0];
+  const published = await act("drive.save", { ...fields, id: draft.id, revision: current.revision, published: true });
+  assert.equal(published.statusCode, 200, published.body);
+  assert.deepEqual(await notified(), ["picked"]);
+  assert.match((await db.query("SELECT body FROM student.notifications WHERE user_id=$1", [users.picked])).rows[0].body, /selected you/);
+  assert.equal((await db.query("SELECT batch FROM placement.drives WHERE id=$1", [draft.id])).rows[0].batch, "2026");
+});

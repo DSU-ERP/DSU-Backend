@@ -3,10 +3,16 @@
 // to drives published to this student, their own applications, their calendar
 // and their notices. Nothing about other students or officer work is read.
 
+import { PLACEMENT_POLICY } from "../analytics/placementPolicy.js";
+
 export const SCHEDULE_REQUEST =
   /\b(?:schedule[ds]?|calendar|today|tomorrow|this week|next week|upcoming|deadlines?|due|drives?|interviews?|rounds?|tests?|exams?|assessments?|work|tasks?|to-?dos?|pending|notifications?|notices?|apply|applied|applications?|compan(?:y|ies)|offers?|selected|placements?|recruit\w*|hiring|package|ctc|stipend|bond|role|jobs?|internships?)\b/i;
 
-export const PLACEMENT_SCOPE_RULES = `myPlacement holds only this student's own placement and schedule data: drives the placement office published to them (with company details and what is offered), their applications and round results, calendar events and assessments in the next 14 days, and unread notices. Use it to answer questions about their schedule, deadlines, drives, companies, offers and pending work, quoting dates exactly. When myPlacement.detail is "summary", it holds counts only; say what is coming up and invite a more specific question. Never reveal or speculate about other students, applicant counts, shortlists, how a drive's audience was chosen, placement-office decisions that are not shown, or company-internal information. Decline requests that are not about the student's own studies, career or placement (for example placement-office operations, another student's records, company review decisions, or unrelated topics) in one sentence, and say what you can help with instead.`;
+export const PLACEMENT_SCOPE_RULES = `myPlacement holds only this student's own placement and schedule data: drives the placement office published to them (with company details and what is offered), their applications and round results, calendar events and assessments in the next 14 days, and unread notices. Use it to answer questions about their schedule, deadlines, drives, companies, offers and pending work, quoting dates exactly. When myPlacement.detail is "summary", it holds counts only; say what is coming up and invite a more specific question. Never reveal or speculate about other students, applicant counts, shortlists, how a drive's audience was chosen, placement-office decisions that are not shown, or company-internal information. Decline requests that are not about the student's own studies, career or placement (for example placement-office operations, another student's records, company review decisions, or unrelated topics) in one sentence, and say what you can help with instead. Never write internal field names such as myPlacement in an answer; say "your placement record" or "your drives" instead.`;
+
+// The institution's placement rule, from the same policy the officer portal
+// uses, so student and officer answers agree.
+export const ELIGIBILITY_RULES = `Institution placement rule: a student is placement-eligible with a valid official CGPA of ${PLACEMENT_POLICY.minimumCgpa} or above on the 10-point scale; backlogs and attendance are not part of this rule. When the student asks what a CGPA means for placement eligibility, state this rule first and compare their CGPA with ${PLACEMENT_POLICY.minimumCgpa}, then add that individual companies may set higher cutoffs and that the placement office makes the official decision.`;
 
 const day = (offsetDays, now) => new Date(now.getTime() + offsetDays * 86400000).toISOString();
 

@@ -55,6 +55,7 @@ test("notifications reach the right people and mark-as-read removes them", { tim
 
   await t.test("decisions notify the company; approval notifies the chosen students", async () => {
     await ok("POST", `/placement/company-requests/${draft.id}/review`, "officer", { decision: "return", comment: "Add the joining date." });
+    assert.equal((await unread(ok, "officer")).unread, 0, "a returned request no longer waits in the officer's bell");
     const returned = await unread(ok, "hrA");
     assert.deepEqual(returned.rows.map((r) => [r.kind, r.title, r.body]), [["request.returned", "Changes requested: Graduate Engineer", "Add the joining date."]]);
     await ok("POST", "/company/requests", "hrA", { id: draft.id, joining_date: "2027-07-01" });
@@ -63,6 +64,7 @@ test("notifications reach the right people and mark-as-read removes them", { tim
       decision: "approve", audience: { batches: ["2027"], branches: ["CSE"], min_cgpa: 6, add: [], remove: [ids.C02] },
     });
     driveId = approved.driveId;
+    assert.equal((await unread(ok, "officer")).unread, 0, "an approved request no longer waits in the officer's bell");
     const company = await unread(ok, "hrA");
     assert.equal(company.rows[0].kind, "request.approved");
     assert.equal(company.rows[0].href, `/company/drives/${driveId}`);
