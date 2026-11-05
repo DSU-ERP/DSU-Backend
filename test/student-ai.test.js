@@ -187,3 +187,53 @@ test("provider failures explain routing, credentials, credits and capacity witho
     assert.doesNotMatch(JSON.stringify(logs), /private|synthetic-key/);
   }
 });
+
+const completion = (content, finish_reason = "stop") => Response.json({
+  id: "synthetic", object: "chat.completion", created: 1, model: "synthetic",
+  choices: [{ index: 0, finish_reason, message: { role: "assistant", content } }],
+  usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 },
+});
+
+test("the LangChain ChatOpenAI path sends the same OpenRouter request as the direct path", async () => {
+  for (const kind of ["chat.reply", "chat.jd-match", "company.chat"]) {
+    const bodies = [];
+    const { generate } = aiFixture(async (url, options) => {
+      assert.equal(String(url), "https://openrouter.ai/api/v1/chat/completions");
+      assert.equal(new Headers(options.headers).get("authorization"), "Bearer synthetic-key");
+      bodies.push(JSON.parse(options.body));
+      return completion('{"text":"ready"}');
+    });
+    const schema = z.object({ text: z.string() });
+    assert.deepEqual(await generate("actor", kind, "Keep the full task.", { message: "synthetic" }, schema), { text: "ready" });
+    assert.deepEqual(await generate("actor", kind, "Keep the full task.", { message: "synthetic" }, schema, { langchain: true }), { text: "ready" });
+    const [direct, viaLangChain] = bodies;
+    // LangChain adds only stream:false; every field the direct path sends is identical.
+    assert.equal(viaLangChain.stream, false);
+    for (const key of Object.keys(direct)) assert.deepEqual(viaLangChain[key], direct[key], `${kind}: ${key}`);
+  }
+});
+
+test("the ChatOpenAI path keeps the same errors, slot release and private diagnostics", async () => {
+  const schema = z.object({ text: z.string() });
+  const cases = [
+    [async () => Response.json({ error: { message: "private upstream body synthetic-key" } }, { status: 404 }), 503, "AI_NOT_CONFIGURED"],
+    [async () => Response.json({ error: { message: "private upstream body synthetic-key" } }, { status: 429 }), 429, "AI_BUSY"],
+    [async () => { throw new DOMException("private provider detail", "TimeoutError"); }, 504, "AI_TIMEOUT"],
+    [async () => completion('{"text":"partial', "length"), 502, "AI_OUTPUT_LIMIT"],
+    [async () => completion("not-json"), 502, "AI_INVALID_RESPONSE"],
+    [async () => Response.json({ error: { message: "private upstream failure" } }), 502, "AI_INVALID_RESPONSE"],
+  ];
+  for (const [reply, statusCode, code] of cases) {
+    let calls = 0;
+    const { generate, finished, logs } = aiFixture(async (...args) => (++calls === 1 ? reply(...args) : completion('{"text":"ready"}')));
+    await assert.rejects(() => generate("actor", "chat.reply", "private task", { resume: "private resume" }, schema, { langchain: true }), (error) => {
+      assert.equal(error.statusCode, statusCode);
+      assert.equal(error.code, code);
+      assert.doesNotMatch(error.message, /private|synthetic-key/);
+      return true;
+    });
+    assert.deepEqual(await generate("actor", "chat.reply", "task", {}, schema, { langchain: true }), { text: "ready" }, "the slot is released");
+    assert.deepEqual(finished, ["failed", "completed"]);
+    assert.doesNotMatch(JSON.stringify(logs), /private|synthetic-key|actor/);
+  }
+});

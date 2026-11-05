@@ -7,6 +7,7 @@ import { reserveAiRequest, finishAiRequest } from "./ai.js";
 import { chatResearchQuery } from "./chat-research.js";
 import { studentPlacementContext, PLACEMENT_SCOPE_RULES, ELIGIBILITY_RULES } from "./friday-context.js";
 import { createTracer, errorCategory, traced } from "../ops/tracer.js";
+import { plainState, runGraph, StateGraph, START, END } from "../../platform/agents/graph.js";
 import {
   driveRecord,
   highestRank,
@@ -234,6 +235,7 @@ export function registerChatRoutes(api, { pool, generate, research, env = {} }) 
       return { data: { deleted: true } };
     });
   });
+  const graph = studentChatGraph({ pool, generate, research, env });
   api.post("/student/conversations/:id/message", async (req) => {
     const id = z.uuid().parse(req.params.id),
       input = z
@@ -253,7 +255,26 @@ export function registerChatRoutes(api, { pool, generate, research, env = {} }) 
     tracer.record("input", "input", "Student message received", "completed", {
       chars: input.message.length, webSearch: input.webSearch === true, hasResume: !!input.resume,
     });
-    return traced(tracer, async () => {
+    return traced(tracer, async () => (await runGraph(graph, { id, actor, input }, { tracer })).response);
+  });
+}
+
+const StudentState = plainState([
+  "id", "actor", "input", "prepared", "decision", "wantsResearch", "searchQuery",
+  "found", "researchStatus", "competencyContext", "answer", "sources", "response",
+]);
+
+/**
+ * Student F.R.I.D.A.Y. as a LangGraph state graph:
+ *   prepare → route → reply (greeting, missing resume) → persist → output
+ *                   → research → competency → model → persist → output
+ * The server decides which data to load; the model has no tools.
+ */
+export function studentChatGraph({ pool, generate, research, env = {} }) {
+  const tracerOf = (config) => config.configurable.tracer;
+
+  async function prepare({ id, actor, input }, config) {
+    const tracer = tracerOf(config);
     const identityStarted = new Date();
     let loading = null;
     const prepared = await runStudent(pool, actor, async (client, official) => {
@@ -401,71 +422,29 @@ export function registerChatRoutes(api, { pool, generate, research, env = {} }) 
         throw error;
       },
     );
-    const save = (text, card, sources) => tracer.step("persist", "persist", "Save the conversation", () =>
-      runStudent(pool, actor, async (client) => {
-        await owned(client, "conversations", id, actor, true);
-        await client.query(
-          "INSERT INTO student.messages(conversation_id,user_id,role,content,card,sources) VALUES($1,$2,'user',$3,NULL,'[]'),($1,$2,'assistant',$4,$5,$6)",
-          [
-            id,
-            actor,
-            input.message,
-            text,
-            card ? JSON.stringify(card) : null,
-            JSON.stringify(sources),
-          ],
-        );
-        await client.query(
-          "UPDATE student.conversations SET updated_at=now(),context=context||$2::jsonb WHERE id=$1",
-          [
-            id,
-            JSON.stringify({
-              ...(input.resume ? { resume: input.resume } : {}),
-              ...(input.jd && !prepared.drive ? { jd: input.jd } : {}),
-            }),
-          ],
-        );
-      }), { citations: sources.length, card: card ? card.type : "none" });
-    const skipModel = (reason) => {
-      tracer.record("research.web", "retrieval", "Web search", "skipped", { reason });
-      tracer.record("model.call", "model", "Model call", "skipped", { reason });
-    };
-    const answered = (decision) => tracer.record("output", "output", "Answer returned", "completed", { decision });
+    return { prepared };
+  }
+
+  function route({ prepared }, config) {
     // A comparison without a resume would analyse invented details: ask instead.
-    if (prepared.greeting) {
-      tracer.record("route", "route", "Choose how to answer", "completed", { decision: "greeting" });
-      skipModel("greeting");
-      await save(prepared.greeting, null, []);
-      answered("greeting");
-      return {
-        data: {
-          text: prepared.greeting,
-          card: null,
-          sources: [],
-          research: "skipped",
-          conversationId: id,
-        },
-      };
-    }
-    if (prepared.needsResume) {
-      tracer.record("route", "route", "Choose how to answer", "completed", { decision: "ask_for_resume" });
-      skipModel("no_resume");
-      const text = resumeRequest(prepared.drive, prepared.eligibility);
-      await save(text, null, []);
-      answered("ask_for_resume");
-      return {
-        data: {
-          text,
-          card: null,
-          sources: [],
-          research: "skipped",
-          needsResume: true,
-          conversationId: id,
-        },
-      };
-    }
-    // Only an AI answer uses search results: never pay for a search it can't use.
-    tracer.record("route", "route", "Choose how to answer", "completed", { decision: prepared.drive ? "jd_match" : "chat_reply" });
+    const decision = prepared.greeting ? "greeting" : prepared.needsResume ? "ask_for_resume" : prepared.drive ? "jd_match" : "chat_reply";
+    tracerOf(config).record("route", "route", "Choose how to answer", "completed", { decision });
+    return { decision };
+  }
+
+  // Greeting and missing-resume replies need no AI, so no search or model call.
+  function reply({ prepared, decision }, config) {
+    const tracer = tracerOf(config);
+    const reason = decision === "greeting" ? "greeting" : "no_resume";
+    tracer.record("research.web", "retrieval", "Web search", "skipped", { reason });
+    tracer.record("model.call", "model", "Model call", "skipped", { reason });
+    const text = decision === "greeting" ? prepared.greeting : resumeRequest(prepared.drive, prepared.eligibility);
+    return { answer: { text, card: null }, sources: [], researchStatus: "skipped" };
+  }
+
+  // Only an AI answer uses search results: never pay for a search it can't use.
+  async function webResearch({ actor, input, prepared }, config) {
+    const tracer = tracerOf(config);
     generate.assertConfigured?.();
     const wantsResearch =
       input.webSearch === true || (!!prepared.drive && input.webSearch !== false);
@@ -501,30 +480,84 @@ export function registerChatRoutes(api, { pool, generate, research, env = {} }) 
           { results: found.length, decision: researchStatus }, outcome.status === "failed" ? { error_category: "external_service" } : {});
       }
     }
-    const competency = competencyEnabled(env)
+    return { wantsResearch, searchQuery, found, researchStatus };
+  }
+
+  async function competency({ actor }, config) {
+    const tracer = tracerOf(config);
+    const competencyContext = competencyEnabled(env)
       ? await tracer.step("context.competency", "retrieval", "Competency evidence", () => studentCompetencyContext(pool, actor), (c) => ({ enabled: !!c }))
       : (tracer.record("context.competency", "retrieval", "Competency evidence", "skipped", { reason: "feature_off" }), null);
+    return { competencyContext };
+  }
+
+  async function model({ actor, prepared, found, researchStatus, competencyContext }, config) {
     const answer = await generate(
       actor,
       prepared.drive ? "chat.jd-match" : "chat.reply",
-      (prepared.drive ? JD_MATCH_TASK : CHAT_TASK) + (competency ? COMPETENCY_CHAT_RULES : ''),
-      { ...prepared.input, research: researchForModel(found), researchStatus, ...(competency ? {competency} : {}) },
+      (prepared.drive ? JD_MATCH_TASK : CHAT_TASK) + (competencyContext ? COMPETENCY_CHAT_RULES : ''),
+      { ...prepared.input, research: researchForModel(found), researchStatus, ...(competencyContext ? { competency: competencyContext } : {}) },
       prepared.drive ? jdMatchSchema : responseSchema,
-      { trace: tracer },
+      { trace: tracerOf(config), langchain: true },
     );
-    const sources = citedSources(answer.citations, found);
-    await save(answer.text, answer.card, sources);
-    answered(prepared.drive ? "jd_match" : "chat_reply");
-    return {
-      data: {
-        text: answer.text,
-        card: answer.card,
-        sources,
-        research: researchStatus,
-        ...(wantsResearch ? { researchInfo: { query: searchQuery, resultCount: found.length, results: citedSources(found.map((_, i) => i), found) } } : {}),
-        conversationId: id,
-      },
-    };
-    });
-  });
+    return { answer, sources: citedSources(answer.citations, found) };
+  }
+
+  async function persist({ id, actor, input, prepared, answer, sources }, config) {
+    await tracerOf(config).step("persist", "persist", "Save the conversation", () =>
+      runStudent(pool, actor, async (client) => {
+        await owned(client, "conversations", id, actor, true);
+        await client.query(
+          "INSERT INTO student.messages(conversation_id,user_id,role,content,card,sources) VALUES($1,$2,'user',$3,NULL,'[]'),($1,$2,'assistant',$4,$5,$6)",
+          [
+            id,
+            actor,
+            input.message,
+            answer.text,
+            answer.card ? JSON.stringify(answer.card) : null,
+            JSON.stringify(sources),
+          ],
+        );
+        await client.query(
+          "UPDATE student.conversations SET updated_at=now(),context=context||$2::jsonb WHERE id=$1",
+          [
+            id,
+            JSON.stringify({
+              ...(input.resume ? { resume: input.resume } : {}),
+              ...(input.jd && !prepared.drive ? { jd: input.jd } : {}),
+            }),
+          ],
+        );
+      }), { citations: sources.length, card: answer.card ? answer.card.type : "none" });
+    return {};
+  }
+
+  function output({ id, decision, answer, sources, researchStatus, wantsResearch, searchQuery, found }, config) {
+    tracerOf(config).record("output", "output", "Answer returned", "completed", { decision });
+    const data = { text: answer.text, card: answer.card, sources, research: researchStatus };
+    if (decision === "ask_for_resume") data.needsResume = true;
+    if (wantsResearch)
+      data.researchInfo = { query: searchQuery, resultCount: found.length, results: citedSources(found.map((_, i) => i), found) };
+    return { response: { data: { ...data, conversationId: id } } };
+  }
+
+  return new StateGraph(StudentState)
+    .addNode("prepare", prepare)
+    .addNode("route", route)
+    .addNode("reply", reply)
+    .addNode("research", webResearch)
+    .addNode("competency", competency)
+    .addNode("model", model)
+    .addNode("persist", persist)
+    .addNode("output", output)
+    .addEdge(START, "prepare")
+    .addEdge("prepare", "route")
+    .addConditionalEdges("route", ({ decision }) => (decision === "greeting" || decision === "ask_for_resume" ? "reply" : "research"), ["reply", "research"])
+    .addEdge("reply", "persist")
+    .addEdge("research", "competency")
+    .addEdge("competency", "model")
+    .addEdge("model", "persist")
+    .addEdge("persist", "output")
+    .addEdge("output", END)
+    .compile();
 }

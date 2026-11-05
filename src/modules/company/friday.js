@@ -6,6 +6,7 @@ import { z } from "zod";
 import { withActor } from "../../integrations/supabase/db.js";
 import { databaseError, httpError } from "../../platform/http/errors.js";
 import { createTracer, errorCategory, traced } from "../ops/tracer.js";
+import { plainState, runGraph, StateGraph, START, END } from "../../platform/agents/graph.js";
 
 export const COMPANY_FRIDAY_SYSTEM =
   "You are F.R.I.D.A.Y., the assistant in the DSU campus placement portal for one recruiting company. " +
@@ -125,6 +126,7 @@ export function registerCompanyFriday(api, { pool, generate }) {
       return { data: { deleted: true } };
     });
   });
+  const graph = companyChatGraph({ pool, generate, member });
   api.post("/company/friday/conversations/:id/message", { bodyLimit: 10000 }, async (req) => {
     const id = z.uuid().parse(req.params.id);
     const { message } = z.object({ message: z.string().trim().min(1).max(4000) }).strict().parse(req.body);
@@ -132,7 +134,22 @@ export function registerCompanyFriday(api, { pool, generate }) {
     const tracer = createTracer(pool, { assistant: "company", actorId: actor, summary: { chars: message.length } });
     await tracer.ready;
     tracer.record("input", "input", "Company message received", "completed", { chars: message.length });
-    return traced(tracer, async () => {
+    return traced(tracer, async () => (await runGraph(graph, { id, actor, message }, { tracer })).response);
+  });
+}
+
+const CompanyState = plainState(["id", "actor", "message", "prepared", "answer", "response"]);
+
+/**
+ * Company F.R.I.D.A.Y. as a LangGraph state graph:
+ *   prepare (membership, own-company context) → model → persist → output
+ * Context comes only from company.* functions; the model has no tools.
+ */
+export function companyChatGraph({ pool, generate, member }) {
+  const tracerOf = (config) => config.configurable.tracer;
+
+  async function prepare({ id, actor, message }, config) {
+    const tracer = tracerOf(config);
     const prepared = await withActor(pool, actor, async (client) => {
       await tracer.step("identity", "auth", "Company membership: own company only", () => member(client));
       const conversation = (await client.query("SELECT id FROM company.conversations WHERE id=$1", [id])).rows[0];
@@ -158,15 +175,23 @@ export function registerCompanyFriday(api, { pool, generate }) {
         message,
       };
     });
+    return { prepared };
+  }
+
+  async function model({ actor, prepared }, config) {
     const answer = await generate(
       actor,
       "company.chat",
       "Answer the company's message using only context. Lead with the answer; keep it concise.",
       prepared,
       companyAnswerSchema,
-      { company: true, system: COMPANY_FRIDAY_SYSTEM, trace: tracer },
+      { company: true, system: COMPANY_FRIDAY_SYSTEM, trace: tracerOf(config), langchain: true },
     );
-    const saved = await tracer.step("persist", "persist", "Save the conversation", () => withActor(pool, actor, async (client) => {
+    return { answer };
+  }
+
+  async function persist({ id, actor, message, answer }, config) {
+    const response = await tracerOf(config).step("persist", "persist", "Save the conversation", () => withActor(pool, actor, async (client) => {
       await member(client);
       const { rows } = await client.query("SELECT id,title FROM company.conversations WHERE id=$1 FOR UPDATE", [id]);
       if (!rows[0]) throw httpError(404, "NOT_FOUND", "Conversation not found.");
@@ -180,8 +205,23 @@ export function registerCompanyFriday(api, { pool, generate }) {
       );
       return { data: { text: answer.text } };
     }));
-    tracer.record("output", "output", "Answer returned", "completed", { chars: answer.text.length });
-    return saved;
-    });
-  });
+    return { response };
+  }
+
+  function output({ answer }, config) {
+    tracerOf(config).record("output", "output", "Answer returned", "completed", { chars: answer.text.length });
+    return {};
+  }
+
+  return new StateGraph(CompanyState)
+    .addNode("prepare", prepare)
+    .addNode("model", model)
+    .addNode("persist", persist)
+    .addNode("output", output)
+    .addEdge(START, "prepare")
+    .addEdge("prepare", "model")
+    .addEdge("model", "persist")
+    .addEdge("persist", "output")
+    .addEdge("output", END)
+    .compile();
 }
