@@ -9,7 +9,7 @@
 import { randomUUID } from "node:crypto";
 import { withActor } from "../../integrations/supabase/db.js";
 
-export const WORKFLOW_VERSIONS = Object.freeze({ student: "student-friday-v2", company: "company-friday-v2", officer: "officer-friday-v1" });
+export const WORKFLOW_VERSIONS = Object.freeze({ student: "student-friday-v3", company: "company-friday-v3", officer: "officer-friday-v3" });
 
 // Only these metadata keys survive, and only as short strings, numbers or booleans.
 const META_KEYS = new Set([

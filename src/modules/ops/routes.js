@@ -4,7 +4,7 @@
 import { z } from "zod";
 import { sqlCall } from "../company/routes.js";
 import { WORKFLOWS } from "./workflows.js";
-import { safeMeta } from "./tracer.js";
+import { safeMeta, WORKFLOW_VERSIONS } from "./tracer.js";
 import { httpError } from "../../platform/http/errors.js";
 
 const iso = z.iso.datetime({ offset: true });
@@ -65,7 +65,7 @@ export function registerOpsRoutes(api, { pool }) {
     const officer = await call(req, "SELECT student.is_officer() AS result");
     if (!officer) throw httpError(403, "FORBIDDEN", "Placement Officer access is required.");
     await call(req, "SELECT ops.trace_start($1::jsonb) AS result", [
-      JSON.stringify({ id: body.id, assistant: "officer", workflow_version: "officer-friday-v1", started_at: body.startedAt, summary: body.summary || {} }),
+      JSON.stringify({ id: body.id, assistant: "officer", workflow_version: WORKFLOW_VERSIONS.officer, started_at: body.startedAt, summary: body.summary || {} }),
     ]);
     return { data: { id: body.id } };
   });

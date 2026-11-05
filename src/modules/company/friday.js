@@ -6,6 +6,7 @@ import { z } from "zod";
 import { withActor } from "../../integrations/supabase/db.js";
 import { databaseError, httpError } from "../../platform/http/errors.js";
 import { createTracer, errorCategory, traced } from "../ops/tracer.js";
+import { MODEL_STEPS } from "../students/ai.js";
 import { plainState, runGraph, StateGraph, START, END } from "../../platform/agents/graph.js";
 
 export const COMPANY_FRIDAY_SYSTEM =
@@ -141,7 +142,8 @@ export function registerCompanyFriday(api, { pool, generate }) {
 const CompanyState = plainState(["id", "actor", "message", "prepared", "answer", "response"]);
 
 /**
- * Company F.R.I.D.A.Y. as a LangGraph state graph:
+ * Company F.R.I.D.A.Y. as a LangGraph state graph (the Admin portal draws it
+ * from this compiled graph and the node metadata):
  *   prepare (membership, own-company context) → model → persist → output
  * Context comes only from company.* functions; the model has no tools.
  */
@@ -214,10 +216,31 @@ export function companyChatGraph({ pool, generate, member }) {
   }
 
   return new StateGraph(CompanyState)
-    .addNode("prepare", prepare)
-    .addNode("model", model)
-    .addNode("persist", persist)
-    .addNode("output", output)
+    .addNode("prepare", prepare, { metadata: {
+      kind: "context", label: "Prepare", purpose: "Requires an active member of an active company, then loads that company's own drive requests, live drives and, after release, consenting applicants. Names only when asked; contact only when asked.",
+      inputs: "conversation id, message", outputs: "company context", functions: ["company.actor_company()", "companyContext"],
+      steps: [
+        { id: "identity", kind: "auth", label: "Company membership", purpose: "Everything after this is limited to the member's own company.",
+          inputs: "verified JWT", outputs: "company id", functions: ["company.actor_company()"] },
+        { id: "context", kind: "context", label: "Load company context", purpose: "Own drive requests, live drives and released applicants.",
+          inputs: "message", outputs: "company context", functions: ["companyContext"] },
+        { id: "db.company.session", kind: "retrieval", label: "company.session()", purpose: "The member's company profile.", inputs: "actor", outputs: "company", functions: ["company.session()"] },
+        { id: "db.company.requests", kind: "retrieval", label: "company.requests()", purpose: "The company's drive requests and review status.", inputs: "actor", outputs: "requests", functions: ["company.requests()"] },
+        { id: "db.company.drives", kind: "retrieval", label: "company.drives()", purpose: "The company's live drives.", inputs: "actor", outputs: "drives", functions: ["company.drives()"] },
+        { id: "db.company.applicants", kind: "retrieval", label: "company.applicants(drive)", purpose: "Released, consenting applicants of one drive. Runs once per released drive.",
+          inputs: "drive id", outputs: "applicants", functions: ["company.applicants()"] },
+      ] } })
+    .addNode("model", model, { metadata: {
+      kind: "model", label: "Model call", purpose: "Writes the answer with LangChain ChatOpenAI on OpenRouter, within the member's AI budget, and checks it against a strict schema.",
+      inputs: "company context, history", outputs: "answer text", functions: ["createStudentAI.generate", "ChatOpenAI.invoke"],
+      steps: MODEL_STEPS } })
+    .addNode("persist", persist, { metadata: {
+      kind: "persist", label: "Save conversation", purpose: "Stores the exchange in the member's own conversation.",
+      inputs: "answer", outputs: "messages", functions: ["company.messages"],
+      steps: [{ id: "persist", kind: "persist", label: "Save conversation" }] } })
+    .addNode("output", output, { metadata: {
+      kind: "output", label: "Answer returned", purpose: "Plain-text answer.", inputs: "answer", outputs: "response", functions: [],
+      steps: [{ id: "output", kind: "output", label: "Answer returned" }] } })
     .addEdge(START, "prepare")
     .addEdge("prepare", "model")
     .addEdge("model", "persist")
@@ -225,3 +248,8 @@ export function companyChatGraph({ pool, generate, member }) {
     .addEdge("output", END)
     .compile();
 }
+
+/** Steps recorded before the company graph starts. */
+export const COMPANY_START_STEPS = [
+  { id: "input", kind: "input", label: "Company message", purpose: "Validated message (max 4,000 characters).", inputs: "message", outputs: "request", functions: ["zod"] },
+];

@@ -103,6 +103,16 @@ function runAsCompany(pool, actor, fn) {
   });
 }
 
+// The steps generate() records, for the graph node that calls it.
+export const MODEL_STEPS = [
+  { id: "model.limit", kind: "limit", label: "AI request limit", purpose: "Reserves the caller's AI budget: 12 requests a minute, at most 2 running.",
+    inputs: "actor, request kind", outputs: "reservation id", functions: ["reserveAiRequest", "student.ai_requests"] },
+  { id: "model.call", kind: "model", label: "Model call", purpose: "One OpenRouter chat completion through LangChain ChatOpenAI with a strict JSON schema. No tool calling.",
+    inputs: "system rules, task, prepared context", outputs: "JSON answer", functions: ["createStudentAI.generate", "ChatOpenAI.invoke", "OpenRouter"] },
+  { id: "model.validate", kind: "validate", label: "Response schema check", purpose: "Rejects incomplete or malformed answers; nothing is invented on failure.",
+    inputs: "model JSON", outputs: "validated answer", functions: ["zod schema"] },
+];
+
 // One per-student budget covers AI calls and web searches (12 per minute,
 // at most 2 running). Returns the student.ai_requests id to finish later.
 export const AI_REQUESTS_PER_MINUTE = 12;

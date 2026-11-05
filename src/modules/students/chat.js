@@ -3,7 +3,7 @@ import {competencyEnabled} from '../competency/gate.js';
 import {studentCompetencyContext,COMPETENCY_CHAT_RULES} from '../competency/friday.js';
 import { runStudent, owned } from "./context.js";
 import { httpError } from "../../platform/http/errors.js";
-import { reserveAiRequest, finishAiRequest } from "./ai.js";
+import { reserveAiRequest, finishAiRequest, MODEL_STEPS } from "./ai.js";
 import { chatResearchQuery } from "./chat-research.js";
 import { studentPlacementContext, PLACEMENT_SCOPE_RULES, ELIGIBILITY_RULES } from "./friday-context.js";
 import { createTracer, errorCategory, traced } from "../ops/tracer.js";
@@ -265,7 +265,8 @@ const StudentState = plainState([
 ]);
 
 /**
- * Student F.R.I.D.A.Y. as a LangGraph state graph:
+ * Student F.R.I.D.A.Y. as a LangGraph state graph (the Admin portal draws it
+ * from this compiled graph and the node metadata):
  *   prepare → route → reply (greeting, missing resume) → persist → output
  *                   → research → competency → model → persist → output
  * The server decides which data to load; the model has no tools.
@@ -436,6 +437,7 @@ export function studentChatGraph({ pool, generate, research, env = {} }) {
   function reply({ prepared, decision }, config) {
     const tracer = tracerOf(config);
     const reason = decision === "greeting" ? "greeting" : "no_resume";
+    tracer.record("reply", "output", "Answer without AI", "completed", { reason });
     tracer.record("research.web", "retrieval", "Web search", "skipped", { reason });
     tracer.record("model.call", "model", "Model call", "skipped", { reason });
     const text = decision === "greeting" ? prepared.greeting : resumeRequest(prepared.drive, prepared.eligibility);
@@ -542,17 +544,49 @@ export function studentChatGraph({ pool, generate, research, env = {} }) {
   }
 
   return new StateGraph(StudentState)
-    .addNode("prepare", prepare)
-    .addNode("route", route)
-    .addNode("reply", reply)
-    .addNode("research", webResearch)
-    .addNode("competency", competency)
-    .addNode("model", model)
-    .addNode("persist", persist)
-    .addNode("output", output)
+    .addNode("prepare", prepare, { metadata: {
+      kind: "context", label: "Prepare", purpose: "Checks the signed-in student and loads their own conversation, profile, resume and, for drive chats, the drive and official eligibility. Every query runs under row-level security.",
+      inputs: "conversation id, message", outputs: "prepared context", functions: ["runStudent", "owned()", "driveRecord", "opportunityEligibility"],
+      steps: [
+        { id: "identity", kind: "auth", label: "Student identity", purpose: "Runs every query as the signed-in student. Accounts without a student link are refused.",
+          inputs: "verified JWT", outputs: "official student record", functions: ["runStudent", "withActor", "erp.actor_student()"] },
+        { id: "context", kind: "context", label: "Load context", purpose: "The student's own conversation history, profile, resume and, for drive chats, the drive and official eligibility.",
+          inputs: "conversation id", outputs: "prepared context", functions: ["owned()", "driveRecord", "opportunityEligibility"] },
+        { id: "context.placement", kind: "retrieval", label: "Own placement and schedule", purpose: "Drives published to this student, their applications, offers, calendar, open assessments and unread notices.",
+          inputs: "message", outputs: "myPlacement (summary or full)", functions: ["studentPlacementContext", "student.placement_record()"] },
+      ] } })
+    .addNode("route", route, { metadata: {
+      kind: "route", label: "Choose how to answer", purpose: "Greeting and missing-resume replies need no AI; otherwise a chat reply or a JD match.",
+      inputs: "message, drive, resume", outputs: "greeting | ask_for_resume | chat_reply | jd_match", functions: ["isGreeting", "resumeRequest"],
+      steps: [{ id: "route", kind: "route", label: "Choose how to answer" }] } })
+    .addNode("reply", reply, { metadata: {
+      kind: "output", label: "Answer without AI", purpose: "A greeting, or a request to add a resume before a drive comparison. No web search or model call.",
+      inputs: "decision", outputs: "answer text", functions: ["studentGreeting", "resumeRequest"],
+      steps: [{ id: "reply", kind: "output", label: "Answer without AI" }] } })
+    .addNode("research", webResearch, { metadata: {
+      kind: "retrieval", label: "Web search", purpose: "Optional Brave or Google search through the MCP search server, when asked for or for drive chats. Counts against the AI budget.",
+      inputs: "search query", outputs: "up to 5 results", functions: ["research.search", "MCP web-search", "chatResearchQuery"],
+      steps: [{ id: "research.web", kind: "retrieval", label: "Web search", purpose: "One search request, or skipped with the reason.", functions: ["research.search"] }] } })
+    .addNode("competency", competency, { metadata: {
+      kind: "retrieval", label: "Competency evidence", purpose: "Assessed competency context, only when competency testing is switched on.",
+      inputs: "student", outputs: "competency summary", functions: ["studentCompetencyContext"],
+      steps: [{ id: "context.competency", kind: "retrieval", label: "Competency evidence", functions: ["studentCompetencyContext"] }] } })
+    .addNode("model", model, { metadata: {
+      kind: "model", label: "Model call", purpose: "Writes the answer with LangChain ChatOpenAI on OpenRouter, within the student's AI budget, and checks it against a strict schema.",
+      inputs: "prepared context, research", outputs: "answer, card, citations", functions: ["createStudentAI.generate", "ChatOpenAI.invoke"],
+      steps: MODEL_STEPS } })
+    .addNode("persist", persist, { metadata: {
+      kind: "persist", label: "Save conversation", purpose: "Stores the question and answer in the student's own conversation.",
+      inputs: "answer, sources", outputs: "messages", functions: ["student.messages"],
+      steps: [{ id: "persist", kind: "persist", label: "Save conversation" }] } })
+    .addNode("output", output, { metadata: {
+      kind: "output", label: "Answer returned", purpose: "Text, optional career card and cited sources.",
+      inputs: "answer", outputs: "response", functions: [],
+      steps: [{ id: "output", kind: "output", label: "Answer returned" }] } })
     .addEdge(START, "prepare")
     .addEdge("prepare", "route")
-    .addConditionalEdges("route", ({ decision }) => (decision === "greeting" || decision === "ask_for_resume" ? "reply" : "research"), ["reply", "research"])
+    .addConditionalEdges("route", ({ decision }) => (decision === "greeting" || decision === "ask_for_resume" ? NO_AI : WITH_AI),
+      { [NO_AI]: "reply", [WITH_AI]: "research" })
     .addEdge("reply", "persist")
     .addEdge("research", "competency")
     .addEdge("competency", "model")
@@ -561,3 +595,12 @@ export function studentChatGraph({ pool, generate, research, env = {} }) {
     .addEdge("output", END)
     .compile();
 }
+
+const NO_AI = "greeting or no resume for a drive";
+const WITH_AI = "chat reply or JD match";
+
+/** Steps recorded before the student graph starts. */
+export const STUDENT_START_STEPS = [
+  { id: "input", kind: "input", label: "Student message", purpose: "Validated message (max 4,000 characters), optional attachment and web-search choice.",
+    inputs: "message", outputs: "request", functions: ["zod"] },
+];
