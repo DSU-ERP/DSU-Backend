@@ -414,7 +414,7 @@ test("student skills routes and the sync worker", { timeout: 300000 }, async (t)
     assert.equal((await claimJobs(pool, 4)).length, 0, "a leased job is not claimed twice");
     const lease = await one("SELECT status,EXTRACT(EPOCH FROM leased_until-now())::int AS lease FROM student.sync_jobs WHERE id=$1", [first]);
     assert.equal(lease.status, "running");
-    assert.ok(lease.lease > 100 && lease.lease <= 120);
+    assert.ok(lease.lease > 580 && lease.lease <= 600, "10-minute lease");
     await db.query("UPDATE student.sync_jobs SET leased_until=now()-interval '1 second' WHERE id=$1", [first]);
     assert.deepEqual((await claimJobs(pool, 4)).map((j) => j.attempts), [2], "expired leases are reclaimed");
     await db.query("UPDATE student.sync_jobs SET leased_until=now()-interval '1 second',attempts=max_attempts WHERE id=$1", [first]);

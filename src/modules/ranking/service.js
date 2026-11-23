@@ -6,7 +6,9 @@ import { createHash } from "node:crypto";
 import { workerTransaction } from "../intelligence/sync.js";
 import { evaluateStudent } from "./engine.js";
 
-export const BATCH = 200;
+// Small batches keep each worker transaction short and the event loop free on
+// a 0.5-CPU instance that also serves API requests.
+export const BATCH = 50;
 export const HISTORY_KEPT = 20;
 
 export async function currentModel(client) {
@@ -30,7 +32,9 @@ export async function recalculate(client, ids, model, now = Date.now(), log) {
   const inputs = (await client.query("SELECT ranking.calculation_inputs($1::uuid[]) AS inputs", [ids])).rows[0].inputs;
   const results = [];
   const failed = [];
-  for (const input of inputs) {
+  for (const [index, input] of inputs.entries()) {
+    // Yield to pending API requests between CPU-bound evaluations.
+    if (index && index % 10 === 0) await new Promise((resolve) => setImmediate(resolve));
     try {
       const r = evaluateStudent(input, model, now);
       results.push({ ...r, resultHash: resultHash(r) });

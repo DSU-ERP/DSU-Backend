@@ -12,6 +12,7 @@ import { createLeetCode } from "./leetcode.js";
 import { drainQueue, requestFullRecalculation } from "../ranking/service.js";
 
 const POLL_MS = 5000;
+const MAX_IDLE_MS = 60000;
 const SCHEDULE_MS = 10 * 60 * 1000;
 const MIGRATION_RETRY_MS = 10 * 60 * 1000;
 const STOP_TIMEOUT_MS = 20000;
@@ -56,6 +57,8 @@ export function createSyncWorker({
   let waitingUntil = 0;
   let waitingLogged = false;
   let leetcodeBusy = false;
+  // Students recalculated by the last tick (keeps the loop at full pace).
+  let rankedLastTick = 0;
 
   const waitForMigration = (error) => {
     if (!isPendingMigration(error)) return false;
@@ -75,9 +78,10 @@ export function createSyncWorker({
         const queued = await requestFullRecalculation(pool, rankingHours);
         if (queued) log({ event: "ranking_full_pass_queued", count: queued });
       }
-      await drainQueue(pool, { now, log });
+      return await drainQueue(pool, { now, log });
     } catch (error) {
       if (!isPendingMigration(error)) log({ event: "ranking_error", code: error?.code || "RANKING_ERROR" });
+      return 0;
     }
   }
 
@@ -91,7 +95,7 @@ export function createSyncWorker({
         if (queued) log({ event: "sync_scheduled", count: queued });
       }
       // While the database is not migrated the sync worker waits quietly; so does ranking.
-      if (!waitingLogged) await rankingStep();
+      rankedLastTick = waitingLogged ? 0 : await rankingStep();
       const jobs = await claimJobs(pool, concurrency - inFlight.size, { exceptPlatform: "leetcode" });
       let claimed = jobs.length;
       // LeetCode jobs run as one group so the client batches them into few requests.
@@ -130,10 +134,16 @@ export function createSyncWorker({
     }
   }
 
+  // Idle backoff: with nothing to do, wait twice as long each tick up to
+  // MAX_IDLE_MS, so an idle worker stops costing database round trips every
+  // 5 s. Any claimed job or ranking batch returns to the normal pace.
+  let delay = pollMs;
   const loop = async () => {
-    await tick();
+    const worked = (await tick()) + rankedLastTick;
+    rankedLastTick = 0;
+    delay = worked || inFlight.size ? pollMs : Math.min(delay * 2, Math.max(pollMs, MAX_IDLE_MS));
     if (running) {
-      timer = setTimeout(loop, pollMs);
+      timer = setTimeout(loop, delay);
       timer.unref?.();
     }
   };

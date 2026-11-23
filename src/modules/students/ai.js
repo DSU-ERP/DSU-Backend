@@ -146,6 +146,38 @@ export function finishAiRequest(client, actor, id, succeeded) {
 
 export function createStudentAI(pool, env, override, { request = fetch, logger } = {}) {
   let active = 0;
+  // A full set of provider slots used to reject at once (429 AI_BUSY), which
+  // the student UI showed as an error. Requests now wait in a FIFO queue for a
+  // free slot, up to STUDENT_AI_QUEUE_WAIT_MS, and are rejected only when the
+  // queue is full (STUDENT_AI_QUEUE_MAX) or the wait expires.
+  const limit = Number(env.STUDENT_AI_CONCURRENCY || 2);
+  const queueMax = Number(env.STUDENT_AI_QUEUE_MAX ?? 50);
+  const queueWaitMs = Number(env.STUDENT_AI_QUEUE_WAIT_MS ?? 25000);
+  const waiters = [];
+  const busy = () => httpError(429, "AI_BUSY", "AI preparation is busy. Please try again shortly.");
+  const acquire = () => {
+    if (active < limit) {
+      active++;
+      return Promise.resolve();
+    }
+    if (waiters.length >= queueMax) return Promise.reject(busy());
+    return new Promise((resolve, reject) => {
+      const waiter = { resolve };
+      waiter.timer = setTimeout(() => {
+        waiters.splice(waiters.indexOf(waiter), 1);
+        reject(busy());
+      }, queueWaitMs);
+      waiters.push(waiter);
+    });
+  };
+  // Hands the slot straight to the next waiter, so `active` stays within limit.
+  const releaseSlot = () => {
+    const next = waiters.shift();
+    if (next) {
+      clearTimeout(next.timer);
+      next.resolve();
+    } else active--;
+  };
   const assertConfigured = () => {
     if (!override && !env.OPENROUTER_API_KEY)
       throw httpError(
@@ -165,16 +197,12 @@ export function createStudentAI(pool, env, override, { request = fetch, logger }
     const model = override ? "test-override" : env.STUDENT_AI_MODEL || env.OPENROUTER_MODEL || "deepseek/deepseek-v4.1-flash";
     const marks = { limit: new Date() };
     assertConfigured();
-    if (active >= Number(env.STUDENT_AI_CONCURRENCY || 2)) {
+    try {
+      await acquire();
+    } catch (error) {
       trace?.span("model.limit", "limit", "AI request limit", "failed", marks.limit, new Date(), { kind }, { error_category: "rate_limited" });
-      throw httpError(
-        429,
-        "AI_BUSY",
-        "AI preparation is busy. Please try again shortly.",
-      );
+      throw error;
     }
-    // Reserve before the first await so concurrent users share the same bound.
-    active++;
     let id;
     let succeeded = false;
     let phase = "reservation", upstreamStatus;
@@ -234,7 +262,9 @@ export function createStudentAI(pool, env, override, { request = fetch, logger }
         };
         // Plans contain all questions and context. Leave database time
         // inside the web proxy's 85 s and the socket's 90 s deadlines.
-        const timeoutMs = planning ? 60000 : 40000;
+        // Full assessment papers (up to 14k tokens) need the planning deadline too.
+        const longOutput = planning || ["assessment.generate", "officer.assessment.generate"].includes(kind);
+        const timeoutMs = longOutput ? 60000 : 40000;
         let result;
         if (options.langchain) {
           // The F.R.I.D.A.Y. graphs call the same endpoint with the same body
@@ -322,7 +352,7 @@ export function createStudentAI(pool, env, override, { request = fetch, logger }
         "AI preparation is temporarily unavailable. Please try again.",
       );
     } finally {
-      active--;
+      releaseSlot();
       if (id)
         await run(pool, actor, (client) =>
           finishAiRequest(client, actor, id, succeeded),

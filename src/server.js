@@ -4,7 +4,7 @@ import { readEnv } from "./config/env.js";
 import { schemaStatus } from "./platform/database/readiness.js";
 import Redis from "ioredis";
 import { createSyncWorker } from "./modules/intelligence/worker.js";
-let pool, redis, app, worker;
+let pool, workerPool, redis, app, worker;
 try {
   const env = readEnv();
   pool = createPool(env.DATABASE_URL, env);
@@ -63,6 +63,7 @@ try {
     try {
       // Let in-flight sync jobs finish (bounded) before the pool closes.
       await worker?.stop();
+      await workerPool?.end();
       await app.close();
       if (redis) await redis.quit();
     } finally {
@@ -74,7 +75,14 @@ try {
   await app.listen({ port: env.PORT, host: env.HOST });
   // Platform sync worker (GitHub, Hugging Face). Off with SYNC_WORKER=off.
   if (env.SYNC_WORKER !== "off" && env.NODE_ENV !== "test") {
-    worker = createSyncWorker({ pool, env });
+    // The worker gets its own small pool so sync bursts and ranking batches
+    // never take connections that API requests are waiting for.
+    workerPool = createPool(env.DATABASE_URL, {
+      ...env,
+      DATABASE_POOL_MAX: String(Math.min(2, Number(env.DATABASE_POOL_MAX) || 2)),
+      DATABASE_CONNECTION_TIMEOUT_MS: "30000",
+    });
+    worker = createSyncWorker({ pool: workerPool, env });
     worker.start();
   }
 } catch (error) {
@@ -89,6 +97,7 @@ try {
     }),
   );
   await worker?.stop().catch(() => {});
+  await workerPool?.end().catch(() => {});
   if (app) await app.close();
   else if (pool) await pool.end();
   redis?.disconnect();

@@ -9,7 +9,8 @@ import { z } from "zod";
 import { httpError, sameSecret, isPendingMigration } from "./platform/http/errors.js";
 import { schemaStatus } from "./platform/database/readiness.js";
 import { authVerifier } from "./modules/identity/auth.js";
-import { registerIdentityRoutes } from './modules/identity/routes.js';
+import { registerIdentityRoutes, forgetSession, clearSessions, resolveSession } from './modules/identity/routes.js';
+import { forgetStudentContext, clearStudentContexts } from './modules/students/context.js';
 import {registerRegistrationRoutes} from './modules/students/registration.js';
 import { registerCampusRoutes } from "./modules/campus/routes.js";
 import { registerPortalRoutes } from "./modules/portal/routes.js";
@@ -49,7 +50,7 @@ export async function buildApp({
     requestTimeout: 45000,
     // A socket can be idle while research, AI or document extraction runs.
     // Their bounded work can exceed 10 s; closing it early loses the response.
-    connectionTimeout: 90000,
+    connectionTimeout: 100000, // above the web proxy's longest (90 s) AI deadline
     trustProxy: env.TRUST_PROXY === "1" ? 1 : false,
   });
   await app.register(helmet);
@@ -61,19 +62,35 @@ export async function buildApp({
     methods: ["GET", "POST"],
     allowedHeaders: ["authorization", "content-type", "x-service-token"],
   });
+  // Requests from the web server all arrive from its single egress IP. The web
+  // server forwards the browser's IP in x-dsu-client-ip together with the
+  // service token; only then is that header trusted for per-IP limits.
+  const clientIp = (req) => {
+    const forwarded = req.headers["x-dsu-client-ip"];
+    if (
+      typeof forwarded === "string" &&
+      forwarded.length <= 64 &&
+      /^[0-9a-fA-F:.]+$/.test(forwarded) &&
+      sameSecret(req.headers["x-service-token"], env.SERVICE_TOKEN)
+    )
+      return forwarded;
+    return req.ip;
+  };
   await app.register(rateLimit, {
     max: Number(env.RATE_LIMIT_USER_MAX || 240),
     timeWindow: "1 minute",
     hook: "preHandler",
     redis,
-    skipOnError: false,
+    // A Redis outage must not fail every request; limits resume when it recovers.
+    skipOnError: true,
     keyGenerator: (req) =>
-      req.actor ? "user:" + req.actor.id : "ip:" + req.ip,
+      req.actor ? "user:" + req.actor.id : "ip:" + clientIp(req),
   });
   const ingress = app.createRateLimit({
     max: Number(env.RATE_LIMIT_IP_MAX || 6000),
     timeWindow: "1 minute",
-    keyGenerator: (req) => "ingress:" + req.ip,
+    skipOnError: true,
+    keyGenerator: (req) => "ingress:" + clientIp(req),
   });
   app.addHook("onRequest", async (req, reply) => {
     if (req.url.startsWith("/health/")) return;
@@ -205,6 +222,33 @@ export async function buildApp({
       if (!token || token.length > 8192)
         throw httpError(401, "UNAUTHENTICATED", "Sign in to continue.");
       req.actor = await verify(token);
+    });
+    // Cached identity (/session, student context) is invalidated by writes:
+    // a user's own write may change their onboarding state, and writes that
+    // grant or revoke roles/memberships affect other users, so they clear all.
+    api.addHook("onResponse", async (req) => {
+      if (req.method === "GET" || !req.actor) return;
+      forgetSession(req.actor.id);
+      if (/\/(onboarding|company-requests|company-members|company-invites|company\/invites)(\/|$|\?)/.test(req.url)) {
+        clearSessions();
+        clearStudentContexts();
+      } else forgetStudentContext(req.actor.id);
+    });
+    // Skills-onboarding gate for browser calls proxied through the web app's
+    // /student/api (it marks them with x-dsu-onboarding-gate). Served from the
+    // cached /session answer, so it costs no round trip in the common case.
+    // Skills resources stay open: they are how onboarding is completed.
+    api.addHook("preHandler", async (req) => {
+      if (
+        req.headers["x-dsu-onboarding-gate"] !== "1" ||
+        !req.actor ||
+        !/^\/(api\/)?v1\/student\//.test(req.url) ||
+        /^\/(api\/)?v1\/student\/skills(\/|\?|$)/.test(req.url)
+      )
+        return;
+      const session = await resolveSession(pool, req.actor.id);
+      if (session.onboardingRequired)
+        throw httpError(403, "ONBOARDING_REQUIRED", "Complete your skills onboarding first.");
     });
     registerIdentityRoutes(api, { pool });
     registerRegistrationRoutes(api, {pool});

@@ -34,8 +34,10 @@ services:
         sync: false
       - key: STUDENT_AI_MODEL
         sync: false
+      # Provider calls are network-bound; extra requests wait in a queue
+      # (up to 25 s) instead of failing. Keep within OpenRouter rate limits.
       - key: STUDENT_AI_CONCURRENCY
-        value: 2
+        value: 4
       # Web research: set one provider key (or both). Empty keeps it disabled.
       - key: BRAVE_SEARCH_API_KEY
         sync: false
@@ -51,8 +53,14 @@ services:
         sync: false
       - key: CORS_ORIGINS
         sync: false
+      # API pool. The sync/ranking worker opens its own pool of 2 on top, so
+      # keep (this + 2) within the Supabase session-pooler client limit.
+      # Per-user cache of /session and the student record (ms). Role changes
+      # reach page routing within this window; SQL authorization is immediate.
+      - key: IDENTITY_CACHE_MS
+        value: 15000
       - key: DATABASE_POOL_MAX
-        value: 5
+        value: 10
       - key: RATE_LIMIT_MODE
         value: redis
       - key: REDIS_URL

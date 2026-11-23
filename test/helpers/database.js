@@ -9,7 +9,18 @@ export async function testDatabase() {
   const runtime = {
     async query(sql, values) {
       let result;
-      try { result = await db.query(sql, values); }
+      // withActor sends BEGIN, its settings and an optional prelude as one
+      // simple-protocol batch; run it with exec and switch role right after BEGIN.
+      const batch = !values && sql.startsWith("BEGIN") && sql.includes(";");
+      try {
+        if (batch) {
+          const at = sql.indexOf(";");
+          const results = await db.exec(sql.slice(0, at) + "; SET LOCAL ROLE dsu_api;" + sql.slice(at + 1));
+          results.splice(1, 1);
+          return results;
+        }
+        result = await db.query(sql, values);
+      }
       catch (error) { console.error("Synthetic database query failed:", error.code, error.message); throw error; }
       if (sql.startsWith("BEGIN")) await db.query("SET LOCAL ROLE dsu_api");
       return result;

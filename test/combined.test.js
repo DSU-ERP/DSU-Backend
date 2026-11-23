@@ -121,7 +121,8 @@ test("public and private membership responses match and use the same database ac
     q.sql.includes("set_config('app.user_id'"),
   );
   assert.equal(actorQueries.length, 2);
-  assert.ok(actorQueries.every((q) => q.args[0] === id));
+  // The actor is inlined (escaped) into withActor's single setup batch.
+  assert.ok(actorQueries.every((q) => q.sql.includes(`set_config('app.user_id', '${id}', true)`)));
 });
 
 test("combined mode retains unlinked-account, student, and staff restrictions", async (t) => {

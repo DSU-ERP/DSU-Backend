@@ -24,16 +24,30 @@ const REFRESH_LIMIT_MINUTES = 10;
 const CONSENT_VERSION = 1;
 
 // ---- Shared helpers (also used by /session and the dashboard gate) -----------
+// Whether the intelligence migration exists. Once present it never goes away,
+// so a positive answer is remembered for the life of the process.
+let skillsReady = false;
+async function skillsTableReady(client) {
+  if (skillsReady) return true;
+  skillsReady = (await client.query("SELECT to_regclass('student.skill_profiles') IS NOT NULL AS ready")).rows[0]?.ready === true;
+  return skillsReady;
+}
+
 /** True when a linked student still has to complete the current skills onboarding. */
 export async function onboardingRequired(client, studentId) {
-  const ready = (await client.query("SELECT to_regclass('student.skill_profiles') IS NOT NULL AS ready")).rows[0]?.ready;
   // Before the intelligence migration is applied there is nothing to complete.
-  if (!ready) return false;
-  const { rows } = await client.query("SELECT onboarding_version,identity_confirmed_at,visibility_saved_at FROM student.skill_profiles WHERE student_id=$1", [studentId]);
-  const profile = rows[0];
+  if (!(await skillsTableReady(client))) return false;
+  // Profile and platform states in one round trip (the database is cross-region).
+  const { rows: [row] } = await client.query(
+    `SELECT (SELECT jsonb_build_object('onboarding_version',p.onboarding_version,'identity_confirmed_at',p.identity_confirmed_at,'visibility_saved_at',p.visibility_saved_at)
+               FROM student.skill_profiles p WHERE p.student_id=$1) AS profile,
+            COALESCE((SELECT jsonb_agg(jsonb_build_object('platform',a.platform,'state',a.state))
+               FROM student.platform_accounts a WHERE a.student_id=$1),'[]'::jsonb) AS accounts`,
+    [studentId],
+  );
+  const profile = row?.profile ?? null;
   if ((profile?.onboarding_version ?? 0) < ONBOARDING_VERSION) return true;
-  const accounts = (await client.query("SELECT platform,state FROM student.platform_accounts WHERE student_id=$1", [studentId])).rows;
-  return onboardingStatus(profile, accounts).missing.length > 0;
+  return onboardingStatus(profile, row?.accounts ?? []).missing.length > 0;
 }
 
 export function accountView(row, metrics = []) {

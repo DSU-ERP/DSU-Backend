@@ -26,6 +26,9 @@ export function createPool(url, env = process.env) {
         }
       : false,
     max: Number(env.DATABASE_POOL_MAX || 5),
+    // Detect connections silently dropped by NAT/Supavisor before a request
+    // picks them up, instead of paying a failed query plus a cross-region reconnect.
+    keepAlive: true,
     connectionTimeoutMillis: Number(env.DATABASE_CONNECTION_TIMEOUT_MS || 5000),
     // The database is in another region (Seoul) from the API (Singapore), so a
     // new TLS connection costs several round trips. Keep idle ones for 5 minutes
@@ -75,25 +78,41 @@ export async function useClient(pool, fn) {
   }
 }
 
+const literal = (value) => pg.escapeLiteral(String(value));
+
+/**
+ * Runs fn inside a transaction scoped to the actor.
+ *
+ * The database is in another region (Seoul, ~80 ms away), so every round trip
+ * counts. BEGIN, both transaction-local settings and an optional `prelude`
+ * SELECT go to the server as ONE simple-protocol batch: one round trip instead
+ * of three. Values are inlined with pg.escapeLiteral (no parameters exist in the
+ * simple protocol). `prelude(literal)` returns a single SELECT statement; its
+ * rows are passed to fn as the second argument.
+ */
 export async function withActor(
   pool,
   actorId,
   fn,
-  { repeatableRead = false } = {},
+  { repeatableRead = false, prelude = null } = {},
 ) {
   return useClient(pool, async (client, discard) => {
     try {
-      await client.query(
-        repeatableRead ? "BEGIN ISOLATION LEVEL REPEATABLE READ" : "BEGIN",
-      );
-      // Both settings belong to the same transaction. One statement avoids a
-      // network round trip for every authenticated read/write without changing
-      // row-security scope or persisting either setting on a pooled connection.
-      await client.query(
-        "SELECT set_config('app.user_id', $1, true), set_config('request.jwt.claims', $2, true)",
-        [actorId, JSON.stringify({sub:actorId,role:'authenticated'})],
-      );
-      const result = await fn(client);
+      const preludeSql = prelude ? prelude(literal) : null;
+      const claims = JSON.stringify({ sub: actorId, role: "authenticated" });
+      const batch =
+        (repeatableRead ? "BEGIN ISOLATION LEVEL REPEATABLE READ" : "BEGIN") +
+        `; SELECT set_config('app.user_id', ${literal(actorId)}, true), set_config('request.jwt.claims', ${literal(claims)}, true)` +
+        (preludeSql ? `; ${preludeSql}` : "");
+      const setup = await client.query(batch);
+      let preludeRows;
+      if (preludeSql)
+        // pg returns one result per statement. Test doubles that answer a
+        // batch with a single result get the prelude as its own query.
+        preludeRows = Array.isArray(setup)
+          ? setup.at(-1).rows
+          : (await client.query(preludeSql)).rows;
+      const result = await (prelude ? fn(client, preludeRows) : fn(client));
       await client.query("COMMIT");
       return result;
     } catch (error) {

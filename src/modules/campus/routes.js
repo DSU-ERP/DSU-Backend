@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { withActor } from '../../integrations/supabase/db.js';
 import { httpError } from '../../platform/http/errors.js';
 import { importStudents } from '../imports/importer.js';
+import { clearStudentContexts } from '../students/context.js';
+import { clearSessions } from '../identity/routes.js';
 import { registerAnalytics } from '../analytics/studentAnalytics.js';
 import { categorySql, categoryDefinition } from '../analytics/categoryRules.js';
 export function registerCampusRoutes(api, { pool }) {
@@ -36,7 +38,7 @@ export function registerCampusRoutes(api, { pool }) {
     if(rows[0]?.allowed!==true)throw httpError(403,"FORBIDDEN","Placement Officer or administrator access is required.");
     await client.query("SELECT set_config('app.student_import', 'true', true)");
     return fn(client);
-  });
+  }).finally(() => { clearStudentContexts(); clearSessions(); });
   registerAnalytics(api, { run, audit, httpError });
   api.get("/me", async (req) =>
     run(req, null, async (_client, m) => ({

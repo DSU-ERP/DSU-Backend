@@ -34,7 +34,8 @@ test("AI concurrency is reserved before database awaits and released on failure"
   };
   const generate = createStudentAI(
     pool,
-    { STUDENT_AI_CONCURRENCY: 1 },
+    // No waiting room: a full slot rejects at once (the queue is tested below).
+    { STUDENT_AI_CONCURRENCY: 1, STUDENT_AI_QUEUE_MAX: 0 },
     async () => ({ text: "unused" }),
   );
   const first = generate(
@@ -236,4 +237,33 @@ test("the ChatOpenAI path keeps the same errors, slot release and private diagno
     assert.deepEqual(finished, ["failed", "completed"]);
     assert.doesNotMatch(JSON.stringify(logs), /private|synthetic-key|actor/);
   }
+});
+
+test("AI requests wait in order for a free slot and time out when the wait is too long", async () => {
+  const client = { release() {}, async query(sql) {
+    if (sql.includes("FROM erp.memberships")) return { rows: [{ id: "student" }] };
+    if (sql.includes("count(*)::int n")) return { rows: [{ n: 0, running: 0 }] };
+    if (sql.startsWith("INSERT INTO student.ai_requests")) return { rows: [{ id: "r" }] };
+    return { rows: [] };
+  } };
+  const releases = [];
+  const order = [];
+  const generate = createStudentAI(
+    { connect: async () => client },
+    { STUDENT_AI_CONCURRENCY: 1, STUDENT_AI_QUEUE_MAX: 1, STUDENT_AI_QUEUE_WAIT_MS: 200 },
+    async ({ input }) => { order.push(input.n); await new Promise((r) => releases.push(r)); return { text: "ok" }; },
+  );
+  const schema = z.object({ text: z.string() });
+  const first = generate("a", "test", "task", { n: 1 }, schema);
+  await new Promise((r) => setTimeout(r, 20));
+  const second = generate("b", "test", "task", { n: 2 }, schema);
+  await assert.rejects(generate("c", "test", "task", { n: 3 }, schema), (e) => e.code === "AI_BUSY", "queue full");
+  releases.shift()();
+  await first;
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(order, [1, 2], "the waiting request runs when the slot frees");
+  const third = generate("d", "test", "task", { n: 4 }, schema);
+  await assert.rejects(third, (e) => e.code === "AI_BUSY", "a wait longer than the limit is rejected");
+  releases.shift()();
+  await second;
 });

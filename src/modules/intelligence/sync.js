@@ -17,7 +17,9 @@ import {
   scoreRepository,
 } from "./github.js";
 
-export const LEASE = "2 minutes";
+// GitHub profiles can need up to 20 sequential REST calls; a short lease let a
+// still-running job be reclaimed and run twice.
+export const LEASE = "10 minutes";
 export const SNAPSHOTS_KEPT = 5;
 const REFRESH_MARGIN_MS = 5 * 60 * 1000;
 
