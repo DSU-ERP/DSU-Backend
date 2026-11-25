@@ -33,3 +33,6 @@ Thumbs.db
 Desktop.ini
 *.swp
 *.swo
+
+# graphify output: generated locally, never committed
+graphify-out/
