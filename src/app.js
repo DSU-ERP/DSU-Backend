@@ -255,11 +255,11 @@ export async function buildApp({
     registerCampusRoutes(api, { pool });
     registerPortalRoutes(api, { pool });
     registerStudentRoutes(api, { pool, generate, env, research, storage });
-    registerDriveIntakeRoutes(api, { pool, generate });
+    registerDriveIntakeRoutes(api, { pool });
     registerOfficerTools(api, { pool, env, generate });
     registerIntelligenceRoutes(api, { pool, env, generate, integrations });
     registerRankingRoutes(api, { pool });
-    registerCompanyRoutes(api, { pool, storage, generate });
+    registerCompanyRoutes(api, { pool, storage });
     registerCompanyOfficerRoutes(api, { pool });
     registerNotificationRoutes(api, { pool });
     registerCompanyFriday(api, { pool, generate });

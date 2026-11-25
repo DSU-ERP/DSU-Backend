@@ -381,32 +381,29 @@ test("Observation Haki research, drive comparison, parsers, career history, dash
     await call("/placement/drives/parse", { filename: "drive.txt", data: pdf }, "officer", 400);
     await call("/placement/drives/parse", { filename: "drive.pdf", data: "A".repeat(14 * 1024 * 1024) }, "officer", 413);
     const drivesBefore = (await db.query("SELECT count(*)::int n FROM placement.drives")).rows[0].n;
-    const parsed = await data("/placement/drives/parse", { filename: "drive.pdf", data: pdf }, "officer");
-    assert.equal(aiCalls.at(-1).kind, "officer.drive.parse");
-    assert.match(aiCalls.at(-1).input.documentText, /Acme Systems campus drive/);
+    const aiBefore = aiCalls.length;
+    const parsed = await data("/placement/companies/parse", { filename: "drive.pdf", data: pdf }, "officer");
+    // Read with rules: no AI request at all, and nothing that is not in the text.
+    assert.equal(aiCalls.length, aiBefore);
+    assert.equal(parsed.method, "rules");
     assert.equal(parsed.fields.company_name, "Acme Systems");
+    assert.equal(parsed.fields.title, "Graduate Engineer");
     assert.equal(parsed.fields.package_lpa, 8);
-    assert.equal(parsed.fields.registration_deadline, ""); // 2026-11-31 is not a date
-    assert.equal(parsed.fields.min_cgpa, null); // 65 is not a 10-point CGPA
-    assert.equal(parsed.fields.employment_type, "full-time");
+    assert.equal(parsed.fields.location, "Bengaluru");
+    assert.equal(parsed.fields.employment_type, ""); // not stated, not guessed
     assert.deepEqual(parsed.fields.branches, ["CSE", "ISE"]);
+    assert.deepEqual(parsed.fields.rounds, ["Aptitude", "Technical", "HR"]);
     assert.deepEqual(
       parsed.missingFields,
-      ["registration_deadline", "min_cgpa", "required_documents", "openings"],
+      ["drive_date", "registration_deadline", "min_cgpa", "max_backlogs", "skills", "description", "required_documents", "job_category", "employment_type", "openings"],
     );
-    assert.ok(parsed.warnings.some((w) => /Registration deadline "2026-11-31"/.test(w)));
-    assert.ok(parsed.warnings.some((w) => /Minimum CGPA "65"/.test(w)));
-    assert.ok(parsed.warnings.includes("CTC is stated as a range."));
     // Company details come back alongside the role, for the company editor.
-    assert.deepEqual(parsed.company, {
-      name: "Acme Systems", short_name: "Acme", industry: "IT services", headquarters: "Bengaluru",
-      website: "https://acme.example", hr_name: "Asha Rao", hr_email: "", hr_phone: "+91 80 1234 5678",
-      about: "Builds payment software.", hiring_roles: "Graduate Engineer", job_categories: ["Software / IT"],
-    });
-    assert.deepEqual(parsed.missingCompanyFields, ["hr_email"]);
-    assert.ok(parsed.warnings.some((w) => /HR email "not an email"/.test(w)));
-    // The company editor's path is the same officer-only parser.
-    await call("/placement/companies/parse", { filename: "drive.pdf", data: pdf }, "a", 403);
+    assert.equal(parsed.company.name, "Acme Systems");
+    assert.equal(parsed.company.hr_email, "hr@acme.example");
+    assert.equal(parsed.company.website, "https://acme.example");
+    assert.equal(parsed.sources.package_lpa, "Role: Graduate Engineer. CTC 8 LPA. Location: Bengaluru");
+    // The old drive path is the same officer-only parser.
+    await call("/placement/drives/parse", { filename: "drive.pdf", data: pdf }, "a", 403);
     assert.equal(parsed.document.stored, "text-only");
     assert.equal((await db.query("SELECT count(*)::int n FROM placement.drives")).rows[0].n, drivesBefore);
     const intake = (await db.query("SELECT created_by,filename,low_text,extracted FROM placement.drive_intakes WHERE id=$1", [parsed.intakeId])).rows[0];
@@ -431,21 +428,23 @@ test("Observation Haki research, drive comparison, parsers, career history, dash
       withActor(pool, users.officer, (client) => client.query("UPDATE placement.drive_intakes SET content=''")),
     );
 
-    // The AI reads the first 40,000 characters; a longer notice says so.
-    // (A second officer: the parse route allows five requests a minute.)
+    // A long notice is read in full: rules have no 40,000-character AI window.
     const longLines = Array.from(
       { length: 40 },
       (_, i) => `Clause ${String(i).padStart(2, "0")}: responsibilities, eligibility and the selection process for this role`,
     );
-    const long = await data("/placement/drives/parse", { filename: "long.pdf", data: makePdf(longLines, 20).toString("base64") }, "officer2");
+    const long = await data("/placement/companies/parse", { filename: "long.pdf", data: makePdf(longLines, 20).toString("base64") }, "officer2");
     assert.ok(long.document.chars > 40000 && !long.document.truncated);
-    assert.equal(aiCalls.at(-1).input.documentText.length, 40000);
-    assert.ok(long.warnings.some((w) => /Only the first part/.test(w)));
+    assert.ok(!long.warnings.some((w) => /Only the first part/.test(w)));
 
-    const before = aiCalls.length;
-    const scanned = await data("/placement/drives/parse", { filename: "scan.pdf", data: makePdf(["CTC"]).toString("base64") }, "officer");
-    assert.equal(aiCalls.length, before); // nothing to read: no AI call, no guesses
+    // The same PDF again reuses its stored text and gives the same answer.
+    const again = await data("/placement/companies/parse", { filename: "copy.pdf", data: pdf }, "officer2");
+    assert.deepEqual(again.fields, parsed.fields);
+    assert.equal(again.document.chars, parsed.document.chars);
+
+    const scanned = await data("/placement/companies/parse", { filename: "scan.pdf", data: makePdf(["CTC"]).toString("base64") }, "officer");
     assert.deepEqual(scanned.missingFields, DRIVE_FIELDS);
     assert.match(scanned.warnings[0], /scanned/);
+    assert.equal(aiCalls.filter((c) => c.kind === "officer.drive.parse").length, 0);
   });
 });

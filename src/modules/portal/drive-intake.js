@@ -7,6 +7,7 @@ import { z } from "zod";
 import { withActor } from "../../integrations/supabase/db.js";
 import { httpError } from "../../platform/http/errors.js";
 import { decodeUpload, extractDocument } from "../students/documents.js";
+import { parseRecruiterText } from "./recruiter-parser.js";
 
 export const DRIVE_FIELDS = [
   "company_name",
@@ -41,7 +42,6 @@ export const COMPANY_FIELDS = [
   "job_categories",
 ];
 const EMPLOYMENT_TYPES = ["full-time", "internship", "internship-ppo", "contract"];
-export const AI_TEXT_LIMIT = 40000;
 const LABELS = {
   package_lpa: "Package",
   drive_date: "Drive date",
@@ -51,52 +51,25 @@ const LABELS = {
   employment_type: "Employment type",
   openings: "Openings",
 };
-// Numbers and dates are validated on the server, so a model mistake becomes a
-// warning and an empty field instead of a failed import.
-export const driveExtractionSchema = z
-  .object({
-    company_name: z.string(),
-    title: z.string(),
-    package_lpa: z.number().nullable(),
-    location: z.string(),
-    drive_date: z.string(),
-    registration_deadline: z.string(),
-    min_cgpa: z.number().nullable(),
-    max_backlogs: z.number().nullable(),
-    branches: z.array(z.string()).max(100),
-    skills: z.string(),
-    description: z.string(),
-    rounds: z.array(z.string()).max(30),
-    required_documents: z.string(),
-    job_category: z.string(),
-    employment_type: z.string(),
-    openings: z.number().nullable(),
-    contact: z.string(),
-    notes: z.array(z.string()).max(10),
-  })
-  .strict();
-// Officer recruiter PDFs also describe the company itself (the company portal's
-// own drive upload keeps the drive-only schema above).
-export const recruiterExtractionSchema = driveExtractionSchema
-  .extend({
-    company: z
-      .object({
-        short_name: z.string(),
-        industry: z.string(),
-        headquarters: z.string(),
-        website: z.string(),
-        hr_name: z.string(),
-        hr_email: z.string(),
-        hr_phone: z.string(),
-        about: z.string(),
-        hiring_roles: z.string(),
-        job_categories: z.array(z.string()).max(20),
-      })
-      .strict(),
-  })
-  .strict();
-const TASK =
-  "Extract campus placement drive details from documentText, a recruiter's drive notice. Use only what the document states. When a field is not stated, return an empty string, null or an empty list; never guess, infer from the company name or invent. company_name: the hiring company. title: the job role. package_lpa: annual CTC in lakhs per annum as a number (₹6,00,000 per annum is 6); for a range use the lower bound and say so in notes; null when only a stipend or no package is given. Dates as YYYY-MM-DD; when the year is missing and today does not make it unambiguous, leave the date empty and add a note. min_cgpa on a 10-point scale; when only a percentage is given leave it null and add a note. max_backlogs: allowed active backlogs. branches: eligible branches as written (e.g. CSE, ISE, ECE). rounds: selection rounds in order. employment_type: one of full-time, internship, internship-ppo, contract, or empty. openings: number of positions. contact: coordinator or HR contact details as written. description: a faithful summary of the role and responsibilities. company: details about the hiring company itself, only as stated: short_name (abbreviation or brand name), industry, headquarters (city or head office), website (as written), hr_name, hr_email and hr_phone (the recruiter or HR contact person), about (a faithful summary of what the company does), hiring_roles (roles the company hires for, comma separated), job_categories (broad categories such as Software / IT, Data & analytics, Core engineering, Consulting). notes: short points the officer should double-check.";
+/** Parse requests per officer per minute. Reading is rule-based and cheap now. */
+export const PARSE_RATE_LIMIT = 30;
+
+/**
+ * Reads a recruiter notice with rules (no AI) and validates the result.
+ * Shared by the officer intake and the company portal's drive upload.
+ */
+export function readRecruiterNotice(content) {
+  const parsed = parseRecruiterText(content);
+  const drive = normalizeDriveExtraction(parsed.drive);
+  const company = normalizeCompanyExtraction(parsed.company, drive.fields.company_name);
+  // Only report where a value came from when the value survived validation.
+  const kept = (key, value) => value !== null && value !== "" && !(Array.isArray(value) && !value.length);
+  const sources = {};
+  for (const [key, value] of Object.entries({ ...drive.fields, ...company.fields }))
+    if (kept(key, value) && parsed.sources[key]) sources[key] = parsed.sources[key];
+  if (company.fields.name && parsed.sources.company_name) sources.name = parsed.sources.company_name;
+  return { drive, company, sources };
+}
 
 const clean = (value, max) =>
   typeof value === "string"
@@ -223,14 +196,14 @@ export function normalizeDriveExtraction(raw) {
 
 const emptyFields = () => normalizeDriveExtraction({}).fields;
 
-export function registerDriveIntakeRoutes(api, { pool, generate }) {
+export function registerDriveIntakeRoutes(api, { pool }) {
   // The company editor reads recruiter PDFs; the drive path is kept for older web builds.
   for (const path of ["/placement/companies/parse", "/placement/drives/parse"])
   api.post(
     path,
     {
       bodyLimit: 15 * 1024 * 1024,
-      config: { rateLimit: { max: 5, timeWindow: "1 minute" } },
+      config: { rateLimit: { max: PARSE_RATE_LIMIT, timeWindow: "1 minute" } },
     },
     async (req) => {
       const input = z
@@ -254,12 +227,24 @@ export function registerDriveIntakeRoutes(api, { pool, generate }) {
       const buffer = decodeUpload(input.data);
       if (!buffer.subarray(0, 5).equals(Buffer.from("%PDF-")))
         throw httpError(400, "INVALID_FILE_TYPE", "Choose a PDF drive notice.");
-      const document = await extractDocument(input.filename, buffer);
+      // The same PDF read before (by any officer) reuses its stored text, so
+      // re-uploads skip the PDF process, which only runs two at a time.
+      const sha256 = createHash("sha256").update(buffer).digest("hex");
+      const cached = await withActor(pool, actor, async (client) => (
+        await client.query(
+          "SELECT page_count,chars,truncated,low_text,content FROM placement.drive_intakes WHERE sha256=$1 ORDER BY created_at DESC LIMIT 1",
+          [sha256],
+        )
+      ).rows[0]);
+      const document = cached
+        ? { pageCount: cached.page_count, chars: cached.chars, truncated: cached.truncated, lowText: cached.low_text, content: cached.content }
+        : await extractDocument(input.filename, buffer);
       const warnings = [];
       let result;
       let company = normalizeCompanyExtraction({});
+      let sources = {};
       if (!document.content.trim() || document.lowText) {
-        // Too little text to read: nothing is sent to the AI and nothing is guessed.
+        // Too little text to read: nothing is guessed.
         warnings.push(
           "This PDF looks scanned or image-based, so almost no text could be read. Fill in the fields manually from the notice.",
         );
@@ -269,26 +254,11 @@ export function registerDriveIntakeRoutes(api, { pool, generate }) {
           warnings: [],
         };
       } else {
-        // The AI reads at most AI_TEXT_LIMIT characters of the stored text.
-        if (document.truncated || document.content.length > AI_TEXT_LIMIT)
+        if (document.truncated)
           warnings.push(
             "Only the first part of this long document was read. Check the remaining pages manually.",
           );
-        const raw = await generate(
-          actor,
-          "officer.drive.parse",
-          TASK,
-          {
-            documentText: document.content.slice(0, AI_TEXT_LIMIT),
-            today: new Intl.DateTimeFormat("en-CA", {
-              timeZone: "Asia/Kolkata",
-            }).format(new Date()),
-          },
-          recruiterExtractionSchema,
-          { officer: true },
-        );
-        result = normalizeDriveExtraction(raw);
-        company = normalizeCompanyExtraction(raw.company, result.fields.company_name);
+        ({ drive: result, company, sources } = readRecruiterNotice(document.content));
       }
       const filename = input.filename.replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 200);
       const intake = await withActor(pool, actor, async (client) => (
@@ -297,7 +267,7 @@ export function registerDriveIntakeRoutes(api, { pool, generate }) {
           [
             actor,
             filename,
-            createHash("sha256").update(buffer).digest("hex"),
+            sha256,
             document.pageCount,
             document.chars,
             document.truncated,
@@ -315,6 +285,9 @@ export function registerDriveIntakeRoutes(api, { pool, generate }) {
           company: company.fields,
           missingCompanyFields: company.missingFields,
           warnings: [...warnings, ...company.warnings, ...result.warnings],
+          // The line each value was read from, for the officer to check.
+          sources,
+          method: "rules",
           document: {
             filename,
             pageCount: document.pageCount,

@@ -54,8 +54,15 @@ test("company portal: invites, isolation, review, audience, consent and results"
     const parsed = await ok("POST", "/company/files", "hrA", { filename: "acme-jd.pdf", data: pdf(JD_LINES), parse: true });
     assert.equal(parsed.fields.title, "Graduate Engineer");
     assert.deepEqual(parsed.fields.criteria.branches, ["CSE", "ISE"]);
-    assert.equal(aiCalls.at(-1).kind, "company.drive.parse");
-    assert.match(aiCalls.at(-1).system, /untrusted data/);
+    // Read with rules from the JD itself: no AI request.
+    assert.equal(aiCalls.filter((c) => c.kind === "company.drive.parse").length, 0);
+    assert.equal(parsed.fields.package_lpa, 12);
+    assert.equal(parsed.fields.location, "Bengaluru, hybrid");
+    assert.equal(parsed.fields.openings, 10);
+    assert.equal(parsed.fields.criteria.min_cgpa, 7.5);
+    assert.equal(parsed.fields.criteria.max_backlogs, 0);
+    assert.deepEqual(parsed.fields.rounds, ["online test", "technical interview", "HR interview"]);
+    assert.match(parsed.fields.description, /backend services/);
     assert.equal(storage.objects.size, 1);
     const [key] = storage.objects.keys();
     assert.match(key, new RegExp(`^drive-documents/company/${companies.A}/`));
@@ -69,7 +76,7 @@ test("company portal: invites, isolation, review, audience, consent and results"
   await t.test("incomplete requests cannot be submitted; complete ones can", async () => {
     await fails(400, "POST", `/company/requests/${requestA.id}/submit`, "hrA", {}, /work mode, graduating batch/);
     const saved = await ok("POST", "/company/requests", "hrA", {
-      id: requestA.id, revision: requestA.revision, work_mode: "hybrid", ctc_fixed_lpa: 10, ctc_variable_lpa: 2, bond_months: 12,
+      id: requestA.id, revision: requestA.revision, work_mode: "hybrid", employment_type: "full-time", ctc_fixed_lpa: 10, ctc_variable_lpa: 2, bond_months: 12,
       bond_details: "One year service agreement", joining_date: "2027-07-01",
       criteria: { batches: ["2027"], branches: ["CSE"], min_cgpa: 7.5, notes: "Strong in DSA" },
     });

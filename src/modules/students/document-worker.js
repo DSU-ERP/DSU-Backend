@@ -16,8 +16,9 @@ try {
       const info = await parser.getInfo();
       if (info.total > 100) throw limit("TOO_MANY_PAGES");
       pageCount = info.total;
-      // No "-- n of m --" page markers in stored text.
-      text = (await parser.getText({ pageJoiner: "" })).text;
+      // No "-- n of m --" page markers. Where pdf.js keeps table cells as separate
+      // items, they stay apart as " | "; merged cells are split by the parser.
+      text = (await parser.getText({ pageJoiner: "", cellSeparator: " | " })).text;
     } finally {
       await parser.destroy();
     }
