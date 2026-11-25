@@ -124,6 +124,11 @@ test("Observation Haki research, drive comparison, parsers, career history, dash
         branches: ["CSE", "ISE", "CSE"], skills: "JavaScript, SQL", description: "Build services.",
         rounds: ["Aptitude", "Technical", "HR"], required_documents: "", job_category: "Software / IT",
         employment_type: "Full-Time", openings: null, contact: "hr@acme.example", notes: ["CTC is stated as a range."],
+        company: {
+          short_name: "Acme", industry: "IT services", headquarters: "Bengaluru", website: "acme.example",
+          hr_name: "Asha Rao", hr_email: "not an email", hr_phone: "+91 80 1234 5678", about: "Builds payment software.",
+          hiring_roles: "Graduate Engineer", job_categories: ["Software / IT", "Software / IT"],
+        },
       };
     throw Error("Unexpected AI request " + kind);
   };
@@ -392,6 +397,16 @@ test("Observation Haki research, drive comparison, parsers, career history, dash
     assert.ok(parsed.warnings.some((w) => /Registration deadline "2026-11-31"/.test(w)));
     assert.ok(parsed.warnings.some((w) => /Minimum CGPA "65"/.test(w)));
     assert.ok(parsed.warnings.includes("CTC is stated as a range."));
+    // Company details come back alongside the role, for the company editor.
+    assert.deepEqual(parsed.company, {
+      name: "Acme Systems", short_name: "Acme", industry: "IT services", headquarters: "Bengaluru",
+      website: "https://acme.example", hr_name: "Asha Rao", hr_email: "", hr_phone: "+91 80 1234 5678",
+      about: "Builds payment software.", hiring_roles: "Graduate Engineer", job_categories: ["Software / IT"],
+    });
+    assert.deepEqual(parsed.missingCompanyFields, ["hr_email"]);
+    assert.ok(parsed.warnings.some((w) => /HR email "not an email"/.test(w)));
+    // The company editor's path is the same officer-only parser.
+    await call("/placement/companies/parse", { filename: "drive.pdf", data: pdf }, "a", 403);
     assert.equal(parsed.document.stored, "text-only");
     assert.equal((await db.query("SELECT count(*)::int n FROM placement.drives")).rows[0].n, drivesBefore);
     const intake = (await db.query("SELECT created_by,filename,low_text,extracted FROM placement.drive_intakes WHERE id=$1", [parsed.intakeId])).rows[0];

@@ -1,6 +1,7 @@
-// Officer drive-PDF intake: reads a recruiter's drive notice and suggests
-// drive fields for the officer to review in the drive editor. Nothing is
-// saved to placement.drives or published here.
+// Officer recruiter-PDF intake: reads a recruiter's drive notice and suggests
+// company details and the role's drive details for the officer to review in
+// the company editor. Nothing is saved to placement.companies or
+// placement.drives, or published, here.
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import { withActor } from "../../integrations/supabase/db.js";
@@ -25,6 +26,19 @@ export const DRIVE_FIELDS = [
   "employment_type",
   "openings",
   "contact",
+];
+export const COMPANY_FIELDS = [
+  "name",
+  "short_name",
+  "industry",
+  "headquarters",
+  "website",
+  "hr_name",
+  "hr_email",
+  "hr_phone",
+  "about",
+  "hiring_roles",
+  "job_categories",
 ];
 const EMPLOYMENT_TYPES = ["full-time", "internship", "internship-ppo", "contract"];
 export const AI_TEXT_LIMIT = 40000;
@@ -61,8 +75,28 @@ export const driveExtractionSchema = z
     notes: z.array(z.string()).max(10),
   })
   .strict();
+// Officer recruiter PDFs also describe the company itself (the company portal's
+// own drive upload keeps the drive-only schema above).
+export const recruiterExtractionSchema = driveExtractionSchema
+  .extend({
+    company: z
+      .object({
+        short_name: z.string(),
+        industry: z.string(),
+        headquarters: z.string(),
+        website: z.string(),
+        hr_name: z.string(),
+        hr_email: z.string(),
+        hr_phone: z.string(),
+        about: z.string(),
+        hiring_roles: z.string(),
+        job_categories: z.array(z.string()).max(20),
+      })
+      .strict(),
+  })
+  .strict();
 const TASK =
-  "Extract campus placement drive details from documentText, a recruiter's drive notice. Use only what the document states. When a field is not stated, return an empty string, null or an empty list; never guess, infer from the company name or invent. company_name: the hiring company. title: the job role. package_lpa: annual CTC in lakhs per annum as a number (₹6,00,000 per annum is 6); for a range use the lower bound and say so in notes; null when only a stipend or no package is given. Dates as YYYY-MM-DD; when the year is missing and today does not make it unambiguous, leave the date empty and add a note. min_cgpa on a 10-point scale; when only a percentage is given leave it null and add a note. max_backlogs: allowed active backlogs. branches: eligible branches as written (e.g. CSE, ISE, ECE). rounds: selection rounds in order. employment_type: one of full-time, internship, internship-ppo, contract, or empty. openings: number of positions. contact: coordinator or HR contact details as written. description: a faithful summary of the role and responsibilities. notes: short points the officer should double-check.";
+  "Extract campus placement drive details from documentText, a recruiter's drive notice. Use only what the document states. When a field is not stated, return an empty string, null or an empty list; never guess, infer from the company name or invent. company_name: the hiring company. title: the job role. package_lpa: annual CTC in lakhs per annum as a number (₹6,00,000 per annum is 6); for a range use the lower bound and say so in notes; null when only a stipend or no package is given. Dates as YYYY-MM-DD; when the year is missing and today does not make it unambiguous, leave the date empty and add a note. min_cgpa on a 10-point scale; when only a percentage is given leave it null and add a note. max_backlogs: allowed active backlogs. branches: eligible branches as written (e.g. CSE, ISE, ECE). rounds: selection rounds in order. employment_type: one of full-time, internship, internship-ppo, contract, or empty. openings: number of positions. contact: coordinator or HR contact details as written. description: a faithful summary of the role and responsibilities. company: details about the hiring company itself, only as stated: short_name (abbreviation or brand name), industry, headquarters (city or head office), website (as written), hr_name, hr_email and hr_phone (the recruiter or HR contact person), about (a faithful summary of what the company does), hiring_roles (roles the company hires for, comma separated), job_categories (broad categories such as Software / IT, Data & analytics, Core engineering, Consulting). notes: short points the officer should double-check.";
 
 const clean = (value, max) =>
   typeof value === "string"
@@ -84,6 +118,41 @@ const list = (values, maxItems, maxLength) => [
       .filter(Boolean),
   ),
 ].slice(0, maxItems);
+
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** Validates suggested company details; anything unusable becomes empty plus a warning. */
+export function normalizeCompanyExtraction(raw, companyName = "") {
+  const company = raw && typeof raw === "object" ? raw : {};
+  const warnings = [];
+  let website = clean(company.website, 200);
+  // "acme.com" is a website; "https://" is added so it saves as a link.
+  if (website && !/^https?:\/\//i.test(website)) website = /^[a-z0-9-]+(\.[a-z0-9-]+)+(\/\S*)?$/i.test(website) ? "https://" + website : "";
+  if (clean(company.website, 200) && !website)
+    warnings.push(`Website "${clean(company.website, 200)}" is not a web address and was left blank.`);
+  let email = clean(company.hr_email, 200);
+  if (email && !EMAIL.test(email)) {
+    warnings.push(`HR email "${email}" is not an email address and was left blank.`);
+    email = "";
+  }
+  const fields = {
+    name: clean(companyName, 200),
+    short_name: clean(company.short_name, 50),
+    industry: clean(company.industry, 100),
+    headquarters: clean(company.headquarters, 200),
+    website,
+    hr_name: clean(company.hr_name, 200),
+    hr_email: email,
+    hr_phone: clean(company.hr_phone, 40),
+    about: clean(company.about, 4000),
+    hiring_roles: clean(company.hiring_roles, 1000),
+    job_categories: list(company.job_categories, 20, 100),
+  };
+  const missingFields = COMPANY_FIELDS.filter((key) => {
+    const value = fields[key];
+    return value === "" || (Array.isArray(value) && !value.length);
+  });
+  return { fields, missingFields, warnings };
+}
 
 /** Validates suggested fields; anything unusable becomes empty plus a warning. */
 export function normalizeDriveExtraction(raw) {
@@ -155,8 +224,10 @@ export function normalizeDriveExtraction(raw) {
 const emptyFields = () => normalizeDriveExtraction({}).fields;
 
 export function registerDriveIntakeRoutes(api, { pool, generate }) {
+  // The company editor reads recruiter PDFs; the drive path is kept for older web builds.
+  for (const path of ["/placement/companies/parse", "/placement/drives/parse"])
   api.post(
-    "/placement/drives/parse",
+    path,
     {
       bodyLimit: 15 * 1024 * 1024,
       config: { rateLimit: { max: 5, timeWindow: "1 minute" } },
@@ -186,6 +257,7 @@ export function registerDriveIntakeRoutes(api, { pool, generate }) {
       const document = await extractDocument(input.filename, buffer);
       const warnings = [];
       let result;
+      let company = normalizeCompanyExtraction({});
       if (!document.content.trim() || document.lowText) {
         // Too little text to read: nothing is sent to the AI and nothing is guessed.
         warnings.push(
@@ -212,10 +284,11 @@ export function registerDriveIntakeRoutes(api, { pool, generate }) {
               timeZone: "Asia/Kolkata",
             }).format(new Date()),
           },
-          driveExtractionSchema,
+          recruiterExtractionSchema,
           { officer: true },
         );
         result = normalizeDriveExtraction(raw);
+        company = normalizeCompanyExtraction(raw.company, result.fields.company_name);
       }
       const filename = input.filename.replace(/[\u0000-\u001f\u007f]/g, "").slice(0, 200);
       const intake = await withActor(pool, actor, async (client) => (
@@ -230,7 +303,7 @@ export function registerDriveIntakeRoutes(api, { pool, generate }) {
             document.truncated,
             document.lowText,
             document.content,
-            JSON.stringify(result.fields),
+            JSON.stringify({ ...result.fields, company: company.fields }),
           ],
         )
       ).rows[0]);
@@ -239,7 +312,9 @@ export function registerDriveIntakeRoutes(api, { pool, generate }) {
           intakeId: intake.id,
           fields: result.fields,
           missingFields: result.missingFields,
-          warnings: [...warnings, ...result.warnings],
+          company: company.fields,
+          missingCompanyFields: company.missingFields,
+          warnings: [...warnings, ...company.warnings, ...result.warnings],
           document: {
             filename,
             pageCount: document.pageCount,
