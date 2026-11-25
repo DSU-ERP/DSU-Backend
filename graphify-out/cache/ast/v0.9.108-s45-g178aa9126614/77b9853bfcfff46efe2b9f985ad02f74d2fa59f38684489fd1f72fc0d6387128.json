@@ -1,0 +1,1 @@
+{"nodes": [{"id": "$graphify-root$_supabase_migrations_010_bulk_candidate_validation_sql", "label": "010_bulk_candidate_validation.sql", "file_type": "code", "source_file": "supabase/migrations/010_bulk_candidate_validation.sql", "source_location": null}], "edges": []}
